@@ -1,0 +1,919 @@
+/* Kantext - Modern Tailwind-based Design System */
+/* Note: Using plain CSS since Tailwind CDN doesn't support @apply */
+
+/* ============================================
+   Theme Variables
+   ============================================ */
+
+:root {
+    /* Light mode (default) */
+    --background: hsl(0 0% 100%);
+    --foreground: hsl(240 10% 3.9%);
+    --card: hsl(0 0% 100%);
+    --card-foreground: hsl(240 10% 3.9%);
+    --border: hsl(240 5.9% 90%);
+    --muted: hsl(240 4.8% 95.9%);
+    --muted-foreground: hsl(240 3.8% 46.1%);
+    --primary: hsl(217.2 91.2% 59.8%);
+    --primary-foreground: hsl(0 0% 98%);
+    --destructive: hsl(0 84.2% 60.2%);
+    --destructive-foreground: hsl(0 0% 98%);
+    --success: hsl(142 76% 36%);
+    --warning: hsl(45 93% 47%);
+    --accent: hsl(240 4.8% 95.9%);
+    --accent-foreground: hsl(240 5.9% 10%);
+    --dialog-backdrop: rgba(0, 0, 0, 0.4);
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --input-bg: hsl(0 0% 100%);
+}
+
+html.dark {
+    /* Dark mode */
+    --background: hsl(240 10% 3.9%);
+    --foreground: hsl(0 0% 98%);
+    --card: hsl(240 10% 5.9%);
+    --card-foreground: hsl(0 0% 98%);
+    --border: hsl(240 3.7% 15.9%);
+    --muted: hsl(240 3.7% 15.9%);
+    --muted-foreground: hsl(240 5% 64.9%);
+    --primary: hsl(217.2 91.2% 59.8%);
+    --primary-foreground: hsl(0 0% 98%);
+    --destructive: hsl(0 62.8% 50.6%);
+    --destructive-foreground: hsl(0 0% 98%);
+    --success: hsl(142 76% 36%);
+    --warning: hsl(45 93% 47%);
+    --accent: hsl(240 3.7% 15.9%);
+    --accent-foreground: hsl(0 0% 98%);
+    --dialog-backdrop: rgba(0, 0, 0, 0.8);
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --input-bg: hsl(240 10% 3.9%);
+}
+
+/* ============================================
+   Base Styles & Reset
+   ============================================ */
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    background-color: var(--background);
+    color: var(--foreground);
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ============================================
+   Component Styles
+   ============================================ */
+
+/* Input Fields */
+.input-field {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    background-color: var(--input-bg);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--foreground);
+    transition: all 0.2s ease;
+}
+
+.input-field::placeholder {
+    color: var(--muted-foreground);
+}
+
+.input-field:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+.input-field[readonly] {
+    background-color: var(--muted);
+    color: var(--muted-foreground);
+    cursor: not-allowed;
+    border-color: var(--border);
+}
+
+.input-field[readonly]:focus {
+    box-shadow: none;
+}
+
+/* Button Styles */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    background-color: var(--primary);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--primary-foreground);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    filter: brightness(0.9);
+}
+
+.btn-primary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-destructive {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    background-color: var(--destructive);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--destructive-foreground);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-destructive:hover {
+    filter: brightness(0.9);
+}
+
+.btn-destructive:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--destructive);
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    border: 1px solid var(--border);
+    background-color: var(--background);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--foreground);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background-color: var(--muted);
+}
+
+.btn-secondary:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--border);
+}
+
+/* Priority Badges in Form */
+.priority-option {
+    cursor: pointer;
+}
+
+.priority-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.priority-badge.priority-high {
+    background-color: hsla(0, 62.8%, 50.6%, 0.2);
+    color: hsl(0 62.8% 50.6%);
+}
+
+.priority-badge.priority-medium {
+    background-color: hsla(45, 93%, 47%, 0.2);
+    color: hsl(45 93% 47%);
+}
+
+.priority-badge.priority-low {
+    background-color: hsla(217.2, 91.2%, 59.8%, 0.2);
+    color: hsl(217.2 91.2% 59.8%);
+}
+
+/* Priority selection ring when checked */
+.priority-option:has(input:checked) .priority-badge {
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px currentColor;
+}
+
+/* ============================================
+   Dialog Styles
+   ============================================ */
+
+.dialog-base {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    margin: 0;
+    max-width: 100%;
+    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--dialog-backdrop);
+    backdrop-filter: blur(4px);
+}
+
+.dialog-base[open] {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.dialog-base::backdrop {
+    background: transparent;
+}
+
+.dialog-content {
+    position: relative;
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 32rem;
+    box-shadow: 0 25px 50px -12px var(--shadow-color);
+    animation: dialog-enter 0.2s ease-out;
+}
+
+.dialog-content.dialog-lg {
+    max-width: 48rem;
+}
+
+.dialog-content.dialog-sm {
+    max-width: 24rem;
+}
+
+@keyframes dialog-enter {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.dialog-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.25rem;
+    border-radius: 0.375rem;
+    color: var(--muted-foreground);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.dialog-close:hover {
+    color: var(--foreground);
+    background-color: var(--muted);
+}
+
+/* Details/Accordion Arrow Animation */
+details[open] .details-arrow {
+    transform: rotate(90deg);
+}
+
+/* ============================================
+   Kanban Board Styles
+   ============================================ */
+
+/* Column Cards */
+.column {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    max-height: calc(100vh - 150px);
+    display: flex;
+    flex-direction: column;
+}
+
+.column header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    cursor: grab;
+    flex-shrink: 0;
+}
+
+.column header h2 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted-foreground);
+}
+
+/* Task Count Badge */
+.task-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 9999px;
+    background-color: var(--muted);
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted-foreground);
+}
+
+/* Task List Container */
+.task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1 1 0;
+    min-height: 0; /* Required for overflow scroll to work in flexbox */
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
+}
+
+.task-list.drag-over {
+    background-color: hsla(217.2, 91.2%, 59.8%, 0.05);
+    border: 2px dashed var(--primary);
+}
+
+/* Task Cards */
+.task-card {
+    background-color: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    cursor: grab;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    min-width: 0;
+    width: 100%;
+    flex-shrink: 0;
+}
+
+.task-card:hover {
+    border-color: var(--primary);
+    box-shadow: 0 10px 15px -3px var(--shadow-color);
+}
+
+.task-card.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+/* Task Header */
+.task-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.task-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--foreground);
+    flex: 1;
+    line-height: 1.4;
+}
+
+/* Task Actions */
+.task-actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.task-actions button {
+    padding: 0.375rem;
+    border-radius: 0.375rem;
+    color: var(--muted-foreground);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition: all 0.15s ease;
+}
+
+.task-actions button:hover {
+    background-color: var(--muted);
+    color: var(--foreground);
+}
+
+.task-actions .play-btn:hover {
+    color: var(--success);
+}
+
+.task-actions .play-btn.running {
+    color: var(--warning);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+.task-actions .delete-btn:hover {
+    color: var(--destructive);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Task Meta */
+.task-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.task-test {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, monospace;
+    font-size: 0.75rem;
+    background-color: var(--muted);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    color: var(--primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+/* Task Status Badges */
+.task-status {
+    font-size: 0.75rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-weight: 500;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.task-status.pending {
+    background-color: var(--muted);
+    color: var(--muted-foreground);
+}
+
+.task-status.running {
+    background-color: hsla(45, 93%, 47%, 0.2);
+    color: var(--warning);
+}
+
+.task-status.passed {
+    background-color: hsla(142, 76%, 36%, 0.2);
+    color: var(--success);
+}
+
+.task-status.failed {
+    background-color: hsla(0, 62.8%, 50.6%, 0.2);
+    color: var(--destructive);
+}
+
+/* Priority Badges in Cards */
+.task-priority {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 0.25rem;
+}
+
+.priority-high {
+    background-color: hsla(0, 62.8%, 50.6%, 0.2);
+    color: hsl(0 62.8% 50.6%);
+}
+
+.priority-medium {
+    background-color: hsla(45, 93%, 47%, 0.2);
+    color: hsl(45 93% 47%);
+}
+
+.priority-low {
+    background-color: hsla(217.2, 91.2%, 59.8%, 0.2);
+    color: hsl(217.2 91.2% 59.8%);
+}
+
+/* Acceptance Criteria */
+.task-criteria {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+    line-height: 1.5;
+}
+
+/* ============================================
+   Column Management Styles
+   ============================================ */
+
+/* Add Column Button (inline, styled like a column) */
+.add-column-btn-inline {
+    flex-shrink: 0;
+    min-width: 200px;
+    height: auto;
+    align-self: flex-start;
+    background-color: var(--card);
+    border: 2px dashed var(--border);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.add-column-btn-inline:hover {
+    border: 2px dashed var(--primary);
+    color: var(--foreground);
+    background-color: var(--accent);
+}
+
+.column.dragging {
+    opacity: 0.5;
+}
+
+.column.drag-over-column {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary);
+}
+
+.column-header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.column-drag-handle {
+    color: var(--muted-foreground);
+    cursor: grab;
+    padding: 0.25rem;
+    opacity: 0.5;
+    transition: opacity 0.2s ease;
+}
+
+.column header:hover .column-drag-handle {
+    opacity: 1;
+}
+
+.column-actions {
+    display: flex;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.column header:hover .column-actions {
+    opacity: 1;
+}
+
+.column-actions button {
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    background: transparent;
+    border: none;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.column-actions button:hover {
+    background-color: var(--muted);
+    color: var(--foreground);
+}
+
+.column-actions .delete-column-btn:hover {
+    color: var(--destructive);
+}
+
+/* ============================================
+   Scrollbar Styles
+   ============================================ */
+
+.task-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.task-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.task-list::-webkit-scrollbar-thumb {
+    background-color: var(--muted);
+    border-radius: 3px;
+}
+
+.task-list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+/* Focus visible for accessibility */
+:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+/* Selection color */
+::selection {
+    background-color: hsla(217.2, 91.2%, 59.8%, 0.3);
+    color: var(--foreground);
+}
+
+/* ============================================
+   Notification System
+   ============================================ */
+
+.notification-container {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+.notification {
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: auto;
+    animation: notificationSlideIn 0.3s ease-out;
+    box-shadow: 0 4px 12px var(--shadow-color);
+    max-width: 320px;
+}
+
+.notification.fade-out {
+    animation: notificationSlideOut 0.3s ease-in forwards;
+}
+
+/* Notification types */
+.notification.success {
+    background-color: hsla(142, 76%, 36%, 0.9);
+    color: hsl(142 85.7% 97.3%);
+    border: 1px solid hsl(142 76% 46%);
+}
+
+.notification.error {
+    background-color: hsla(0, 62.8%, 40%, 0.9);
+    color: hsl(0 85.7% 97.3%);
+    border: 1px solid hsl(0 72.2% 50.6%);
+}
+
+.notification.warning {
+    background-color: hsla(45, 93%, 40%, 0.9);
+    color: hsl(45 85.7% 97.3%);
+    border: 1px solid hsl(45 93% 50%);
+}
+
+.notification.info {
+    background-color: hsla(217.2, 91.2%, 50%, 0.9);
+    color: hsl(217.2 85.7% 97.3%);
+    border: 1px solid hsl(217.2 91.2% 59.8%);
+}
+
+@keyframes notificationSlideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes notificationSlideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+/* ============================================
+   Clickable Task Title
+   ============================================ */
+
+.task-title-clickable {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--foreground);
+    flex: 1;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.25rem;
+    margin: -0.125rem -0.25rem;
+}
+
+.task-title-clickable:hover {
+    color: var(--primary);
+    background-color: hsla(217.2, 91.2%, 59.8%, 0.1);
+}
+
+/* ============================================
+   Checkbox Styles
+   ============================================ */
+
+input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    background-color: var(--input-bg);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+}
+
+input[type="checkbox"]:hover {
+    border-color: var(--primary);
+}
+
+input[type="checkbox"]:checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 5px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+input[type="checkbox"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+/* ============================================
+   Theme Toggle
+   ============================================ */
+
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    background-color: var(--background);
+    color: var(--foreground);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+    background-color: var(--muted);
+    border-color: var(--muted-foreground);
+}
+
+.theme-toggle:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+.theme-toggle svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    transition: transform 0.3s ease;
+}
+
+.theme-toggle:hover svg {
+    transform: rotate(15deg);
+}
+
+/* Show sun icon in dark mode, moon icon in light mode */
+.theme-toggle .sun-icon {
+    display: none;
+}
+
+.theme-toggle .moon-icon {
+    display: block;
+}
+
+html.dark .theme-toggle .sun-icon {
+    display: block;
+}
+
+html.dark .theme-toggle .moon-icon {
+    display: none;
+}
+
+/* ============================================
+   Delete Drop Zone
+   ============================================ */
+
+.delete-drop-zone {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+    background-color: hsla(0, 62.8%, 50.6%, 0.15);
+    backdrop-filter: blur(8px);
+    border: 3px dashed var(--destructive);
+    border-radius: 0.75rem;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.delete-drop-zone.visible {
+    display: flex;
+}
+
+.delete-drop-zone span {
+    color: var(--destructive);
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+}
+
+.delete-drop-zone.drag-over {
+    background-color: hsla(0, 62.8%, 50.6%, 0.25);
+}
+
+/* Make header position relative for absolute positioning of drop zone */
+body > header {
+    position: relative;
+}

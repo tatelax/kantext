@@ -1,0 +1,168 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"kantext/internal/config"
+	"kantext/internal/handlers"
+	"kantext/internal/services"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+)
+
+func main() {
+	// Parse command line flags
+	configPath := flag.String("config", "", "Path to config.json file (optional, defaults to current directory)")
+	port := flag.String("port", "8081", "Port to run the server on")
+	flag.Parse()
+
+	var workDir, tasksFile, testsDir string
+	testsRelative := "tests"
+
+	// Determine config path: explicit flag > local config.json > no config
+	cfgPath := *configPath
+	if cfgPath == "" {
+		// Check if config.json exists in current directory
+		if _, err := os.Stat("config.json"); err == nil {
+			cfgPath = "config.json"
+		}
+	}
+
+	if cfgPath != "" {
+		// Load configuration from file
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		workDir = cfg.WorkingDirectory
+		tasksFile = cfg.TasksFile()
+		testsDir = cfg.TestsDir()
+	} else {
+		// Fall back to current working directory
+		var err error
+		workDir, err = os.Getwd()
+		if err != nil {
+			log.Fatalf("Failed to get working directory: %v", err)
+		}
+		tasksFile = filepath.Join(workDir, config.DefaultTasksFileName)
+		testsDir = filepath.Join(workDir, testsRelative)
+	}
+
+	// Initialize WebSocket hub (must be before other services)
+	wsHub := services.NewWSHub()
+	go wsHub.Run()
+
+	// Initialize services
+	testGen := services.NewTestGenerator(testsDir)             // Uses absolute path to create files
+	taskStore := services.NewTaskStore(tasksFile, testGen)
+	testRunner := services.NewTestRunner(testsRelative, workDir) // Uses relative path for go test command
+
+	// Initialize file watcher for real-time updates
+	fileWatcher, err := services.NewFileWatcher(tasksFile, wsHub)
+	if err != nil {
+		log.Fatalf("Failed to initialize file watcher: %v", err)
+	}
+	// When file changes, reload TaskStore before notifying clients
+	fileWatcher.SetOnFileChange(func() {
+		log.Println("Reloading TaskStore from file...")
+		if err := taskStore.Load(); err != nil {
+			log.Printf("Failed to reload tasks: %v", err)
+		}
+	})
+	if err := fileWatcher.Start(); err != nil {
+		log.Fatalf("Failed to start file watcher: %v", err)
+	}
+
+	// Initialize handlers
+	apiHandler := handlers.NewAPIHandler(taskStore, testRunner)
+	wsHandler := handlers.NewWSHandler(wsHub)
+	pageHandler, err := handlers.NewPageHandler(taskStore)
+	if err != nil {
+		log.Fatalf("Failed to initialize page handler: %v", err)
+	}
+
+	// Setup router
+	r := chi.NewRouter()
+
+	// Middleware
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.RealIP)
+
+	// Static files
+	fileServer := http.FileServer(http.Dir("web/static"))
+	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+
+	// Page routes
+	r.Get("/", pageHandler.ServeBoard)
+
+	// WebSocket endpoint
+	r.Get("/ws", wsHandler.ServeWS)
+
+	// API routes
+	r.Route("/api", func(r chi.Router) {
+		// Task routes
+		r.Get("/tasks", apiHandler.ListTasks)
+		r.Post("/tasks", apiHandler.CreateTask)
+		r.Get("/tasks/{id}", apiHandler.GetTask)
+		r.Put("/tasks/{id}", apiHandler.UpdateTask)
+		r.Delete("/tasks/{id}", apiHandler.DeleteTask)
+		r.Post("/tasks/{id}/run", apiHandler.RunTest)
+		r.Get("/tasks/{id}/status", apiHandler.GetTaskStatus)
+
+		// Column routes
+		r.Get("/columns", apiHandler.ListColumns)
+		r.Post("/columns", apiHandler.CreateColumn)
+		r.Put("/columns/{slug}", apiHandler.UpdateColumn)
+		r.Delete("/columns/{slug}", apiHandler.DeleteColumn)
+		r.Put("/columns/reorder", apiHandler.ReorderColumns)
+	})
+
+	// Create server
+	server := &http.Server{
+		Addr:         ":" + *port,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 5 * time.Minute, // Long timeout for test execution
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		log.Println("Shutting down server...")
+		fileWatcher.Stop()
+		server.Close()
+	}()
+
+	// Start server
+	fmt.Printf(`
+╔════════════════════════════════════════════════════════════╗
+║                          Kantext                           ║
+║    Test-Driven Development meets Visual Task Management    ║
+╠════════════════════════════════════════════════════════════╣
+║  * Server running at: http://localhost:%s                  ║
+║  * WebSocket endpoint: ws://localhost:%s/ws                ║             
+║  * Working directory: %s                                   ║
+║  * Tasks file: %s                                          ║
+║  * Tests directory: %s                                     ║
+║  * Real-time updates: ENABLED                              ║
+╚════════════════════════════════════════════════════════════╝
+`, *port, *port, workDir, tasksFile, testsDir)
+
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("Server error: %v", err)
+	}
+}
