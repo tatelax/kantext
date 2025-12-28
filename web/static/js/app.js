@@ -757,7 +757,6 @@ function createTaskCard(task) {
             <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
             <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
         </div>
-        ${task.acceptance_criteria ? `<p class="task-criteria">${escapeHtml(task.acceptance_criteria)}</p>` : ''}
     `;
 
     // Event listeners
