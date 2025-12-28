@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=43">
+    <link rel="stylesheet" href="/static/css/styles.css?v=45">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -100,6 +100,26 @@
                     </button>
                 </div>
             </header>
+
+            <!-- Task Metadata (shown only when editing) -->
+            <div id="task-metadata" class="hidden mb-6 p-4 rounded-lg bg-muted/50 border border-border">
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div id="metadata-created" class="hidden">
+                        <span class="text-muted-foreground">Created</span>
+                        <p class="text-foreground mt-0.5">
+                            <span id="metadata-created-at"></span>
+                            <span id="metadata-created-by" class="text-muted-foreground"></span>
+                        </p>
+                    </div>
+                    <div id="metadata-updated" class="hidden">
+                        <span class="text-muted-foreground">Last Modified</span>
+                        <p class="text-foreground mt-0.5">
+                            <span id="metadata-updated-at"></span>
+                            <span id="metadata-updated-by" class="text-muted-foreground"></span>
+                        </p>
+                    </div>
+                </div>
+            </div>
 
             <form id="task-form" class="space-y-5">
                 <input type="hidden" id="task-id" name="id">
@@ -239,7 +259,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=24"></script>
+    <script src="/static/js/app.js?v=26"></script>
 </body>
 </html>
 {{end}}

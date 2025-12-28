@@ -1511,6 +1511,9 @@ function openTaskModal(task = null) {
                 }
             };
         }
+
+        // Show task metadata if available
+        updateTaskMetadata(task);
     } else {
         modalTitle.textContent = 'New Task';
         if (modalTaskIdWrapper) {
@@ -1543,6 +1546,9 @@ function openTaskModal(task = null) {
         if (modalDeleteBtn) {
             modalDeleteBtn.classList.add('hidden');
         }
+
+        // Hide metadata section for new tasks
+        hideTaskMetadata();
     }
 
     taskModal.showModal();
@@ -1552,6 +1558,77 @@ function openTaskModal(task = null) {
 function showOutput(task) {
     testOutput.textContent = task.last_output || 'No output available';
     outputModal.showModal();
+}
+
+// ============================================
+// Task Metadata Functions
+// ============================================
+
+function formatDateTime(dateString) {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+
+    // Format: "Dec 28, 2025 at 10:44 AM"
+    return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+    }) + ' at ' + date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    });
+}
+
+function updateTaskMetadata(task) {
+    const metadataContainer = document.getElementById('task-metadata');
+    const createdSection = document.getElementById('metadata-created');
+    const updatedSection = document.getElementById('metadata-updated');
+    const createdAtEl = document.getElementById('metadata-created-at');
+    const createdByEl = document.getElementById('metadata-created-by');
+    const updatedAtEl = document.getElementById('metadata-updated-at');
+    const updatedByEl = document.getElementById('metadata-updated-by');
+
+    if (!metadataContainer) return;
+
+    let hasAnyMetadata = false;
+
+    // Handle created_at and created_by
+    const createdAt = formatDateTime(task.created_at);
+    if (createdAt) {
+        createdAtEl.textContent = createdAt;
+        createdByEl.textContent = task.created_by ? ` by ${task.created_by}` : '';
+        createdSection.classList.remove('hidden');
+        hasAnyMetadata = true;
+    } else {
+        createdSection.classList.add('hidden');
+    }
+
+    // Handle updated_at and updated_by
+    const updatedAt = formatDateTime(task.updated_at);
+    if (updatedAt) {
+        updatedAtEl.textContent = updatedAt;
+        updatedByEl.textContent = task.updated_by ? ` by ${task.updated_by}` : '';
+        updatedSection.classList.remove('hidden');
+        hasAnyMetadata = true;
+    } else {
+        updatedSection.classList.add('hidden');
+    }
+
+    // Show or hide the entire metadata container
+    if (hasAnyMetadata) {
+        metadataContainer.classList.remove('hidden');
+    } else {
+        metadataContainer.classList.add('hidden');
+    }
+}
+
+function hideTaskMetadata() {
+    const metadataContainer = document.getElementById('task-metadata');
+    if (metadataContainer) {
+        metadataContainer.classList.add('hidden');
+    }
 }
 
 // ============================================
