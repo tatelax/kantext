@@ -737,36 +737,56 @@ function renderTasks() {
     });
 }
 
+/**
+ * Check if a task has a test associated with it
+ */
+function taskHasTest(task) {
+    return task.test_file && task.test_file.trim() !== '' &&
+           task.test_func && task.test_func.trim() !== '';
+}
+
 function createTaskCard(task) {
     const card = document.createElement('div');
-    card.className = 'task-card';
+    const hasTest = taskHasTest(task);
+    const priorityClass = `priority-${task.priority || 'medium'}`;
+    card.className = `task-card ${priorityClass}` + (hasTest ? '' : ' no-test');
     card.draggable = true;
     card.dataset.id = task.id;
 
-    const priorityClass = `priority-${task.priority || 'medium'}`;
+    // Build actions HTML - only include play button if task has a test
+    const actionsHtml = hasTest
+        ? `<div class="task-actions">
+               <button class="play-btn" title="Run Test">&#9658;</button>
+           </div>`
+        : '';
+
+    // Build meta HTML - only include test info if task has a test
+    const metaHtml = hasTest
+        ? `<div class="task-meta">
+               <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
+               <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
+           </div>`
+        : '';
 
     card.innerHTML = `
         <div class="task-header">
-            <span class="task-priority ${priorityClass}">${(task.priority || 'medium').toUpperCase()}</span>
             <span class="task-title task-title-clickable" title="Click to copy task ID">${escapeHtml(task.title)}</span>
-            <div class="task-actions">
-                <button class="play-btn" title="Run Test">&#9658;</button>
-            </div>
+            ${actionsHtml}
         </div>
-        <div class="task-meta">
-            <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
-            <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
-        </div>
+        ${metaHtml}
     `;
 
     // Event listeners
-    const playBtn = card.querySelector('.play-btn');
     const titleEl = card.querySelector('.task-title-clickable');
 
-    playBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handleRunTest(task.id, playBtn);
-    });
+    // Only add play button listener if task has a test
+    if (hasTest) {
+        const playBtn = card.querySelector('.play-btn');
+        playBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleRunTest(task.id, playBtn);
+        });
+    }
 
     // Title click to copy task ID
     titleEl.addEventListener('click', async (e) => {
@@ -1177,16 +1197,22 @@ async function handleFormSubmit(e) {
         priority: formData.get('priority')
     };
 
-    // Only include test file/function if both are specified
+    // For new tasks, only include test file/function if "Generate test file" is checked
+    // For existing tasks (editing), always include test file/function if specified
     const testFile = formData.get('test_file');
     const testFunc = formData.get('test_func');
-    if (testFile && testFunc) {
+    const isNewTask = !id;
+    const shouldIncludeTestInfo = isNewTask
+        ? (generateTestFileCheckbox && generateTestFileCheckbox.checked)
+        : true;
+
+    if (shouldIncludeTestInfo && testFile && testFunc) {
         data.test_file = testFile;
         data.test_func = testFunc;
     }
 
     // Include generate_test_file flag for new tasks
-    if (!id && generateTestFileCheckbox) {
+    if (isNewTask && generateTestFileCheckbox) {
         data.generate_test_file = generateTestFileCheckbox.checked;
     }
 

@@ -55,10 +55,12 @@ func (s *TaskStore) Load() error {
 	var currentColumn models.Column
 	columnOrder := 0
 
-	// New format: - [ ] [priority] Title | test_file:TestFunc | AcceptanceCriteria <!-- id:uuid -->
+	// New format with test: - [ ] [priority] Title | test_file:TestFunc | AcceptanceCriteria <!-- id:uuid -->
+	// New format without test: - [ ] [priority] Title | AcceptanceCriteria <!-- id:uuid -->
 	// Checkbox states: [ ] = pending, [x] = passed, [-] = failed
 	// Also support old format for backwards compatibility
-	newTaskRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	newTaskWithTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	newTaskNoTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
 	oldTaskRegex := regexp.MustCompile(`^- \[([ x-])\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
 	columnRegex := regexp.MustCompile(`^## (.+)$`)
 
@@ -81,8 +83,8 @@ func (s *TaskStore) Load() error {
 			continue
 		}
 
-		// Try new format first
-		if matches := newTaskRegex.FindStringSubmatch(line); matches != nil {
+		// Try new format with test first
+		if matches := newTaskWithTestRegex.FindStringSubmatch(line); matches != nil {
 			id := matches[7]
 			if id == "" {
 				id = uuid.New().String()
@@ -105,6 +107,31 @@ func (s *TaskStore) Load() error {
 			case "-":
 				task.TestStatus = models.TestStatusFailed
 			}
+
+			s.tasks[task.ID] = task
+			continue
+		}
+
+		// Try new format without test
+		if matches := newTaskNoTestRegex.FindStringSubmatch(line); matches != nil {
+			id := matches[5]
+			if id == "" {
+				id = uuid.New().String()
+			}
+
+			task := &models.Task{
+				ID:                 id,
+				Priority:           models.Priority(matches[2]),
+				Title:              strings.TrimSpace(matches[3]),
+				TestFile:           "", // No test
+				TestFunc:           "", // No test
+				AcceptanceCriteria: strings.TrimSpace(matches[4]),
+				Column:             currentColumn,
+				TestStatus:         models.TestStatusPending,
+			}
+
+			// For tasks without tests, checkbox status doesn't change test status
+			// since there's no test. We keep it as pending.
 
 			s.tasks[task.ID] = task
 			continue
@@ -217,10 +244,17 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 	} else if task.TestStatus == models.TestStatusFailed {
 		checkbox = "-"
 	}
-	// New format: - [ ] [priority] Title | test_file:TestFunc | AcceptanceCriteria <!-- id:uuid -->
-	// Checkbox states: [ ] = pending, [x] = passed, [-] = failed
-	fmt.Fprintf(file, "- [%s] [%s] %s | %s:%s | %s <!-- id:%s -->\n",
-		checkbox, task.Priority, task.Title, task.TestFile, task.TestFunc, task.AcceptanceCriteria, task.ID)
+
+	// Check if task has a test associated
+	if task.HasTest() {
+		// Format with test: - [ ] [priority] Title | test_file:TestFunc | AcceptanceCriteria <!-- id:uuid -->
+		fmt.Fprintf(file, "- [%s] [%s] %s | %s:%s | %s <!-- id:%s -->\n",
+			checkbox, task.Priority, task.Title, task.TestFile, task.TestFunc, task.AcceptanceCriteria, task.ID)
+	} else {
+		// Format without test: - [ ] [priority] Title | AcceptanceCriteria <!-- id:uuid -->
+		fmt.Fprintf(file, "- [%s] [%s] %s | %s <!-- id:%s -->\n",
+			checkbox, task.Priority, task.Title, task.AcceptanceCriteria, task.ID)
+	}
 }
 
 func (s *TaskStore) createInitialFile() error {
@@ -495,10 +529,9 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate test file: %w", err)
 		}
-	} else {
-		// Just generate names without creating files
-		testFile, testFunc = s.testGen.GenerateTestNames(req.Title)
 	}
+	// If GenerateTestFile is explicitly false and no test file/func provided,
+	// the task is created without a test (testFile and testFunc remain empty)
 
 	// Default to first column if exists
 	column := models.Column("todo")

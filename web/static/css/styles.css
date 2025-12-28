@@ -68,6 +68,15 @@ body {
 }
 
 /* ============================================
+   Dot Grid Background
+   ============================================ */
+
+.dot-grid-bg {
+    background-image: radial-gradient(hsla(0, 0%, 50%, 0.25) 1px, transparent 1px);
+    background-size: 25px 25px;
+}
+
+/* ============================================
    Component Styles
    ============================================ */
 
@@ -358,6 +367,7 @@ details[open] .details-arrow {
     max-height: calc(100vh - 150px);
     display: flex;
     flex-direction: column;
+    box-shadow: 0 4px 20px -4px hsla(0, 0%, 0%, 0.4);
 }
 
 .column header {
@@ -398,7 +408,7 @@ details[open] .details-arrow {
 .task-list {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 1rem;
     flex: 1 1 0;
     min-height: 0; /* Required for overflow scroll to work in flexbox */
     border-radius: 0.5rem;
@@ -415,7 +425,7 @@ details[open] .details-arrow {
 
 /* Task Cards */
 .task-card {
-    background-color: var(--background);
+    background-color: black;
     border: 1px solid var(--border);
     border-radius: 0.5rem;
     padding: 1.25rem;
@@ -427,14 +437,42 @@ details[open] .details-arrow {
     flex-shrink: 0;
 }
 
+/* Priority-based glow and outline */
+.task-card.priority-high {
+    background-color: black;
+    border-color: hsla(0, 62.8%, 50.6%, 0.6);
+}
+
+.task-card.priority-medium {
+    background-color: black;
+    border-color: hsla(45, 93%, 47%, 0.6);
+}
+
+.task-card.priority-low {
+    background-color: black;
+    border-color: hsla(217, 91%, 60%, 0.6);
+}
+
 .task-card:hover {
-    border-color: var(--primary);
-    box-shadow: 0 10px 15px -3px var(--shadow-color);
+    box-shadow: 0 0 20px -2px hsla(0, 0%, 100%, 0.15);
 }
 
 .task-card.dragging {
     opacity: 0.5;
     cursor: grabbing;
+}
+
+/* Tasks without tests - subtle diagonal stripe pattern */
+.task-card.no-test {
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 20px,
+            hsla(0, 0%, 50%, 0.15) 20px,
+            hsla(0, 0%, 50%, 0.15) 21px
+        ),
+        black;
 }
 
 /* Task Header */
@@ -444,6 +482,11 @@ details[open] .details-arrow {
     justify-content: space-between;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+}
+
+/* Remove bottom margin when header is the only content (no test meta) */
+.task-header:last-child {
+    margin-bottom: 0;
 }
 
 .task-title {

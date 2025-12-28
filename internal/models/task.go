@@ -86,3 +86,8 @@ type TestResult struct {
 	Error   string `json:"error,omitempty"`
 	RunTime int64  `json:"run_time_ms"`
 }
+
+// HasTest returns true if the task has a test associated with it
+func (t *Task) HasTest() bool {
+	return t.TestFile != "" && t.TestFunc != ""
+}

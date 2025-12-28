@@ -206,13 +206,6 @@ func (h *ToolHandler) listTasks() ToolResult {
 }
 
 func formatTask(t *models.Task) string {
-	status := string(t.TestStatus)
-	if t.TestStatus == models.TestStatusPassed {
-		status = "PASSED"
-	} else if t.TestStatus == models.TestStatusFailed {
-		status = "FAILED"
-	}
-
 	priorityEmoji := ""
 	switch t.Priority {
 	case models.PriorityHigh:
@@ -223,15 +216,34 @@ func formatTask(t *models.Task) string {
 		priorityEmoji = "[LOW]"
 	}
 
-	return fmt.Sprintf("- [%s] %s %s\n  ID: %s\n  Priority: %s\n  Test: %s:%s\n  Status: %s\n  Acceptance Criteria: %s\n",
-		statusCheckbox(t.TestStatus),
+	// Build output based on whether task has a test
+	if t.HasTest() {
+		status := string(t.TestStatus)
+		if t.TestStatus == models.TestStatusPassed {
+			status = "PASSED"
+		} else if t.TestStatus == models.TestStatusFailed {
+			status = "FAILED"
+		}
+
+		return fmt.Sprintf("- [%s] %s %s\n  ID: %s\n  Priority: %s\n  Test: %s:%s\n  Status: %s\n  Acceptance Criteria: %s\n",
+			statusCheckbox(t.TestStatus),
+			priorityEmoji,
+			t.Title,
+			t.ID,
+			t.Priority,
+			t.TestFile,
+			t.TestFunc,
+			status,
+			t.AcceptanceCriteria,
+		)
+	}
+
+	// Task without test - simpler format
+	return fmt.Sprintf("- [ ] %s %s\n  ID: %s\n  Priority: %s\n  Acceptance Criteria: %s\n",
 		priorityEmoji,
 		t.Title,
 		t.ID,
 		t.Priority,
-		t.TestFile,
-		t.TestFunc,
-		status,
 		t.AcceptanceCriteria,
 	)
 }
@@ -265,11 +277,16 @@ func (h *ToolHandler) getTask(args map[string]interface{}) ToolResult {
 	sb.WriteString(fmt.Sprintf("**ID:** %s\n", task.ID))
 	sb.WriteString(fmt.Sprintf("**Priority:** %s\n", task.Priority))
 	sb.WriteString(fmt.Sprintf("**Column:** %s\n", task.Column))
-	sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.TestFile, task.TestFunc))
-	sb.WriteString(fmt.Sprintf("**Status:** %s\n", task.TestStatus))
+
+	// Only show test info if task has a test
+	if task.HasTest() {
+		sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.TestFile, task.TestFunc))
+		sb.WriteString(fmt.Sprintf("**Status:** %s\n", task.TestStatus))
+	}
+
 	sb.WriteString(fmt.Sprintf("**Acceptance Criteria:** %s\n", task.AcceptanceCriteria))
 
-	if task.LastOutput != "" {
+	if task.HasTest() && task.LastOutput != "" {
 		sb.WriteString(fmt.Sprintf("\n## Last Test Output\n```\n%s\n```\n", task.LastOutput))
 	}
 
@@ -382,6 +399,14 @@ func (h *ToolHandler) runTest(args map[string]interface{}) ToolResult {
 		}
 	}
 
+	// Check if task has a test associated
+	if !task.HasTest() {
+		return ToolResult{
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Task '%s' does not have a test associated with it. Add test metadata to the task in TASKS.md first.", task.Title)}},
+			IsError: true,
+		}
+	}
+
 	// Mark as running
 	h.store.SetTestRunning(taskID)
 
@@ -463,8 +488,8 @@ func (h *ToolHandler) moveTask(args map[string]interface{}) ToolResult {
 		}
 	}
 
-	// Prevent moving to "done" unless the test has passed
-	if column == models.ColumnDone && currentTask.TestStatus != models.TestStatusPassed {
+	// Prevent moving to "done" unless the test has passed (only for tasks with tests)
+	if column == models.ColumnDone && currentTask.HasTest() && currentTask.TestStatus != models.TestStatusPassed {
 		return ToolResult{
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Cannot move task to 'done': test has not passed (current status: %s). Run the test first with run_test.", currentTask.TestStatus)}},
 			IsError: true,

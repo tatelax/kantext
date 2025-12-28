@@ -128,6 +128,12 @@ func (h *APIHandler) RunTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if task has a test associated
+	if !task.HasTest() {
+		respondError(w, http.StatusBadRequest, "Task does not have a test associated with it")
+		return
+	}
+
 	// Mark as running
 	h.store.SetTestRunning(id)
 
