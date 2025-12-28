@@ -36,7 +36,16 @@ const board = document.getElementById('board');
 const autoGenerateCheckbox = document.getElementById('auto_generate_test');
 const testConfigHint = document.getElementById('test-config-hint');
 const generateTestFileCheckbox = document.getElementById('generate_test_file');
-const modalDeleteBtn = document.getElementById('modal-delete-btn');
+
+// Task Panel Elements (for editing existing tasks)
+const taskPanel = document.getElementById('task-panel');
+const taskPanelOverlay = document.getElementById('task-panel-overlay');
+const panelTaskForm = document.getElementById('panel-task-form');
+const panelCloseBtn = document.getElementById('panel-close-btn');
+const panelCancelBtn = document.getElementById('panel-cancel-btn');
+const panelDeleteBtn = document.getElementById('panel-delete-btn');
+const panelSaveBtn = document.getElementById('panel-save-btn');
+let currentPanelTask = null; // Track the task being edited in the panel
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -46,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDeleteDropZone();
     initDropIndicator();
     initDialogBackdropClose();
+    initTaskPanel();
     loadColumns().then(() => loadTasks());
     setupEventListeners();
     console.log('[Init] Setting up WebSocket connection...');
@@ -1175,11 +1185,12 @@ function createTaskCard(task) {
     card.addEventListener('dragstart', handleDragStart);
     card.addEventListener('dragend', handleDragEnd);
 
-    // Click on card (not title) to edit task
+    // Click on card (not title) to open task panel
     card.addEventListener('click', (e) => {
-        // Only open modal if click wasn't on title
-        if (!e.target.classList.contains('task-title-clickable')) {
-            openTaskModal(task);
+        // Only open panel if click wasn't on title or action buttons
+        if (!e.target.classList.contains('task-title-clickable') &&
+            !e.target.closest('.task-actions')) {
+            openTaskPanel(task);
         }
     });
 
@@ -1414,24 +1425,25 @@ async function handleColumnDrop(e) {
         renderTasks();
     } catch (error) {
         console.error('Failed to reorder columns:', error);
-        alert(error.message || 'Failed to reorder columns');
+        showNotification(error.message || 'Failed to reorder columns', 'error');
     }
 }
 
 // ============================================
-// Task Modal Functions
+// Task Modal Functions (New Task Dialog Only)
 // ============================================
 
-function openTaskModal(task = null) {
+/**
+ * Opens the new task dialog (for creating new tasks only)
+ * Task editing is now handled by the Task Panel
+ */
+function openNewTaskModal() {
     if (!taskModal) {
         console.error('Task modal not found');
         return;
     }
 
-    const modalTitle = document.getElementById('modal-title');
-    const taskIdInput = document.getElementById('task-id');
     const titleInput = document.getElementById('title');
-    const criteriaInput = document.getElementById('acceptance_criteria');
     const testFileInput = document.getElementById('test_file');
     const testFuncInput = document.getElementById('test_func');
 
@@ -1440,119 +1452,39 @@ function openTaskModal(task = null) {
         advancedDetails.removeAttribute('open');
     }
 
-    const modalTaskIdEl = document.getElementById('modal-task-id');
-    const modalTaskIdWrapper = document.getElementById('modal-task-id-wrapper');
+    // Reset form
+    taskForm.reset();
 
-    if (task) {
-        modalTitle.textContent = 'Edit Task';
-        if (modalTaskIdEl && modalTaskIdWrapper) {
-            modalTaskIdEl.textContent = task.id;
-            modalTaskIdWrapper.classList.remove('hidden');
-        }
-        taskIdInput.value = task.id;
-        titleInput.value = task.title;
-        criteriaInput.value = task.acceptance_criteria || '';
-        testFileInput.value = task.test_file || '';
-        testFuncInput.value = task.test_func || '';
+    // Default to medium priority
+    taskForm.querySelector('input[name="priority"][value="medium"]').checked = true;
 
-        // Set priority radio button
-        const priorityRadio = taskForm.querySelector(`input[name="priority"][value="${task.priority || 'medium'}"]`);
-        if (priorityRadio) priorityRadio.checked = true;
-
-        // Check if task has custom test names (different from auto-generated)
-        const expectedFile = titleToTestFile(task.title);
-        const expectedFunc = titleToTestFunc(task.title);
-        const hasCustomTest = (task.test_file && task.test_file !== expectedFile) ||
-                              (task.test_func && task.test_func !== expectedFunc);
-
-        // Disable auto-generate if task has custom test names
-        if (autoGenerateCheckbox) {
-            autoGenerateCheckbox.checked = !hasCustomTest;
-            toggleAutoGenerate();
-        }
-
-        // Show advanced section if task has custom test
-        if (hasCustomTest) {
-            if (advancedDetails) {
-                advancedDetails.setAttribute('open', '');
-            }
-        }
-
-        // Hide generate test file checkbox for existing tasks (already created)
-        if (generateTestFileCheckbox) {
-            generateTestFileCheckbox.closest('.flex').style.display = 'none';
-        }
-
-        // Ensure advanced section is enabled for existing tasks (checkbox is hidden)
-        if (advancedDetails) {
-            advancedDetails.classList.remove('advanced-disabled');
-            advancedDetails.removeAttribute('inert');
-        }
-
-        // Show delete button for existing tasks
-        if (modalDeleteBtn) {
-            modalDeleteBtn.classList.remove('hidden');
-            modalDeleteBtn.onclick = async () => {
-                const confirmed = await showConfirmDialog('Are you sure you want to delete this task?', {
-                    title: 'Delete Task',
-                    confirmText: 'Delete',
-                    destructive: true
-                });
-                if (confirmed) {
-                    try {
-                        await deleteTask(task.id);
-                        taskModal.close();
-                        await loadTasks();
-                        showNotification(`"${task.title}" was deleted successfully`, 'success');
-                    } catch (error) {
-                        console.error('Failed to delete task:', error);
-                        showNotification('Failed to delete task. Please try again.', 'error');
-                    }
-                }
-            };
-        }
-
-        // Show task metadata if available
-        updateTaskMetadata(task);
-    } else {
-        modalTitle.textContent = 'New Task';
-        if (modalTaskIdWrapper) {
-            modalTaskIdWrapper.classList.add('hidden');
-        }
-        if (modalTaskIdEl) {
-            modalTaskIdEl.textContent = '';
-        }
-        taskForm.reset();
-        taskIdInput.value = '';
-        // Default to medium priority
-        taskForm.querySelector('input[name="priority"][value="medium"]').checked = true;
-
-        // Enable auto-generate by default for new tasks
-        if (autoGenerateCheckbox) {
-            autoGenerateCheckbox.checked = true;
-            toggleAutoGenerate();
-        }
-
-        // Show and enable generate test file checkbox for new tasks
-        if (generateTestFileCheckbox) {
-            generateTestFileCheckbox.closest('.flex').style.display = 'flex';
-            generateTestFileCheckbox.checked = true;
-        }
-
-        // Enable advanced section for new tasks (since generate test file is checked)
-        toggleAdvancedSection();
-
-        // Hide delete button for new tasks
-        if (modalDeleteBtn) {
-            modalDeleteBtn.classList.add('hidden');
-        }
-
-        // Hide metadata section for new tasks
-        hideTaskMetadata();
+    // Enable auto-generate by default for new tasks
+    if (autoGenerateCheckbox) {
+        autoGenerateCheckbox.checked = true;
+        toggleAutoGenerate();
     }
+
+    // Show and enable generate test file checkbox for new tasks
+    if (generateTestFileCheckbox) {
+        generateTestFileCheckbox.closest('.flex').style.display = 'flex';
+        generateTestFileCheckbox.checked = true;
+    }
+
+    // Enable advanced section for new tasks (since generate test file is checked)
+    toggleAdvancedSection();
 
     taskModal.showModal();
     titleInput.focus();
+}
+
+// Alias for backward compatibility
+function openTaskModal(task = null) {
+    if (task) {
+        // If called with a task, open the panel instead
+        openTaskPanel(task);
+    } else {
+        openNewTaskModal();
+    }
 }
 
 function showOutput(task) {
@@ -1632,51 +1564,348 @@ function hideTaskMetadata() {
 }
 
 // ============================================
-// Task Form Handler
+// Task Panel Functions (Slide-in Panel)
+// ============================================
+
+/**
+ * Opens the task panel and populates it with task data
+ */
+function openTaskPanel(task) {
+    if (!taskPanel || !task) return;
+
+    currentPanelTask = task;
+
+    // Populate form fields
+    const idInput = document.getElementById('panel-task-id-input');
+    const titleEl = document.getElementById('panel-title');
+    const titleInput = document.getElementById('panel-title-input');
+    const criteriaInput = document.getElementById('panel-criteria-input');
+    const testFileInput = document.getElementById('panel-test-file');
+    const testFuncInput = document.getElementById('panel-test-func');
+    const taskIdEl = document.getElementById('panel-task-id');
+
+    if (idInput) idInput.value = task.id;
+    if (titleEl) titleEl.textContent = task.title || '';
+    if (titleInput) titleInput.value = task.title || '';
+    if (criteriaInput) criteriaInput.value = task.acceptance_criteria || '';
+    if (testFileInput) testFileInput.value = task.test_file || '';
+    if (testFuncInput) testFuncInput.value = task.test_func || '';
+    if (taskIdEl) taskIdEl.textContent = task.id;
+
+    // Ensure title is in display mode (not edit mode)
+    hideTitleEditMode();
+
+    // Set priority radio button
+    const priorityRadio = panelTaskForm?.querySelector(`input[name="panel-priority"][value="${task.priority || 'medium'}"]`);
+    if (priorityRadio) priorityRadio.checked = true;
+
+    // Expand test config if task has test
+    const testDetails = document.getElementById('panel-test-details');
+    if (testDetails && task.test_file && task.test_func) {
+        testDetails.setAttribute('open', '');
+    }
+
+    // Update metadata display
+    updatePanelMetadata(task);
+
+    // Show panel with animation
+    taskPanelOverlay?.classList.add('visible');
+    taskPanel.classList.add('open');
+
+    // Focus the criteria textarea after animation
+    setTimeout(() => criteriaInput?.focus(), 300);
+}
+
+/**
+ * Closes the task panel
+ */
+function closeTaskPanel() {
+    if (!taskPanel) return;
+
+    taskPanel.classList.remove('open');
+    taskPanelOverlay?.classList.remove('visible');
+    currentPanelTask = null;
+
+    // Reset form and title edit mode after animation
+    setTimeout(() => {
+        panelTaskForm?.reset();
+        hideTitleEditMode();
+    }, 300);
+}
+
+/**
+ * Shows the title edit mode
+ */
+function showTitleEditMode() {
+    const displayEl = document.getElementById('panel-title-display');
+    const editEl = document.getElementById('panel-title-edit');
+    const titleInput = document.getElementById('panel-title-input');
+    const titleEl = document.getElementById('panel-title');
+
+    if (displayEl) displayEl.classList.add('hidden');
+    if (editEl) editEl.classList.remove('hidden');
+
+    // Sync current title to input and focus
+    if (titleInput && titleEl) {
+        titleInput.value = titleEl.textContent || '';
+        titleInput.focus();
+        titleInput.select();
+    }
+}
+
+/**
+ * Hides the title edit mode without saving
+ */
+function hideTitleEditMode() {
+    const displayEl = document.getElementById('panel-title-display');
+    const editEl = document.getElementById('panel-title-edit');
+
+    if (displayEl) displayEl.classList.remove('hidden');
+    if (editEl) editEl.classList.add('hidden');
+}
+
+/**
+ * Saves the edited title
+ */
+async function saveTitleEdit() {
+    const titleInput = document.getElementById('panel-title-input');
+    const titleEl = document.getElementById('panel-title');
+
+    if (!titleInput || !currentPanelTask) return;
+
+    const newTitle = titleInput.value.trim();
+    if (!newTitle) {
+        showNotification('Title cannot be empty', 'error');
+        titleInput.focus();
+        return;
+    }
+
+    // Update display immediately
+    if (titleEl) titleEl.textContent = newTitle;
+    hideTitleEditMode();
+
+    // Update the task
+    try {
+        const formData = new FormData(panelTaskForm);
+        await updateTask(currentPanelTask.id, {
+            title: newTitle,
+            acceptance_criteria: formData.get('acceptance_criteria'),
+            priority: formData.get('panel-priority')
+        });
+        currentPanelTask.title = newTitle;
+        showNotification('Title updated', 'success');
+        await loadTasks();
+    } catch (error) {
+        console.error('Failed to update title:', error);
+        showNotification('Failed to update title', 'error');
+        // Revert title display
+        if (titleEl) titleEl.textContent = currentPanelTask.title || '';
+    }
+}
+
+/**
+ * Updates the metadata display in the panel
+ */
+function updatePanelMetadata(task) {
+    const metadataContainer = document.getElementById('panel-task-metadata');
+    const createdSection = document.getElementById('panel-metadata-created');
+    const updatedSection = document.getElementById('panel-metadata-updated');
+    const createdAtEl = document.getElementById('panel-metadata-created-at');
+    const createdByEl = document.getElementById('panel-metadata-created-by');
+    const updatedAtEl = document.getElementById('panel-metadata-updated-at');
+    const updatedByEl = document.getElementById('panel-metadata-updated-by');
+
+    if (!metadataContainer) return;
+
+    let hasAnyMetadata = false;
+
+    // Handle created_at and created_by
+    const createdAt = formatDateTime(task.created_at);
+    if (createdAt && createdSection) {
+        createdAtEl.textContent = createdAt;
+        createdByEl.textContent = task.created_by ? ` by ${task.created_by}` : '';
+        createdSection.classList.remove('hidden');
+        hasAnyMetadata = true;
+    } else if (createdSection) {
+        createdSection.classList.add('hidden');
+    }
+
+    // Handle updated_at and updated_by
+    const updatedAt = formatDateTime(task.updated_at);
+    if (updatedAt && updatedSection) {
+        updatedAtEl.textContent = updatedAt;
+        updatedByEl.textContent = task.updated_by ? ` by ${task.updated_by}` : '';
+        updatedSection.classList.remove('hidden');
+        hasAnyMetadata = true;
+    } else if (updatedSection) {
+        updatedSection.classList.add('hidden');
+    }
+
+    // Show or hide the entire metadata container
+    if (hasAnyMetadata) {
+        metadataContainer.classList.remove('hidden');
+    } else {
+        metadataContainer.classList.add('hidden');
+    }
+}
+
+/**
+ * Handles form submission from the panel
+ */
+async function handlePanelFormSubmit(e) {
+    e.preventDefault();
+
+    if (!currentPanelTask) return;
+
+    const formData = new FormData(panelTaskForm);
+    const titleEl = document.getElementById('panel-title');
+
+    // Use the displayed title (which may have been edited inline)
+    const title = titleEl?.textContent || formData.get('title') || currentPanelTask.title;
+
+    const data = {
+        title: title,
+        acceptance_criteria: formData.get('acceptance_criteria'),
+        priority: formData.get('panel-priority')
+    };
+
+    try {
+        await updateTask(currentPanelTask.id, data);
+        showNotification(`"${data.title}" was updated successfully`, 'success');
+        closeTaskPanel();
+        await loadTasks();
+    } catch (error) {
+        console.error('Failed to update task:', error);
+        showNotification('Failed to update task. Please try again.', 'error');
+    }
+}
+
+/**
+ * Initializes task panel event listeners
+ */
+function initTaskPanel() {
+    // Close button
+    panelCloseBtn?.addEventListener('click', closeTaskPanel);
+
+    // Cancel button
+    panelCancelBtn?.addEventListener('click', closeTaskPanel);
+
+    // Overlay click to close
+    taskPanelOverlay?.addEventListener('click', closeTaskPanel);
+
+    // Form submission
+    panelTaskForm?.addEventListener('submit', handlePanelFormSubmit);
+
+    // Delete button
+    panelDeleteBtn?.addEventListener('click', async () => {
+        if (!currentPanelTask) return;
+
+        const confirmed = await showConfirmDialog('Are you sure you want to delete this task?', {
+            title: 'Delete Task',
+            confirmText: 'Delete',
+            destructive: true
+        });
+
+        if (confirmed) {
+            try {
+                const taskTitle = currentPanelTask.title;
+                await deleteTask(currentPanelTask.id);
+                closeTaskPanel();
+                await loadTasks();
+                showNotification(`"${taskTitle}" was deleted successfully`, 'success');
+            } catch (error) {
+                console.error('Failed to delete task:', error);
+                showNotification('Failed to delete task. Please try again.', 'error');
+            }
+        }
+    });
+
+    // Copy task ID button
+    const copyBtn = document.getElementById('copy-panel-task-id-btn');
+    const taskIdEl = document.getElementById('panel-task-id');
+    copyBtn?.addEventListener('click', async () => {
+        if (!taskIdEl?.textContent) return;
+        try {
+            await navigator.clipboard.writeText(taskIdEl.textContent);
+            copyBtn.classList.add('copied');
+            showNotification('Task ID copied to clipboard', 'success');
+            setTimeout(() => copyBtn.classList.remove('copied'), 2000);
+        } catch (err) {
+            showNotification('Failed to copy task ID', 'error');
+        }
+    });
+
+    // Title editing buttons
+    const editTitleBtn = document.getElementById('panel-edit-title-btn');
+    const saveTitleBtn = document.getElementById('panel-save-title-btn');
+    const cancelTitleBtn = document.getElementById('panel-cancel-title-btn');
+    const titleInput = document.getElementById('panel-title-input');
+
+    editTitleBtn?.addEventListener('click', showTitleEditMode);
+    saveTitleBtn?.addEventListener('click', saveTitleEdit);
+    cancelTitleBtn?.addEventListener('click', hideTitleEditMode);
+
+    // Enter key to save title, Escape to cancel
+    titleInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveTitleEdit();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent closing the panel
+            hideTitleEditMode();
+        }
+    });
+
+    // Escape key to close panel (only if not editing title)
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && taskPanel?.classList.contains('open')) {
+            const editEl = document.getElementById('panel-title-edit');
+            // Only close panel if title edit mode is hidden
+            if (editEl?.classList.contains('hidden')) {
+                closeTaskPanel();
+            }
+        }
+    });
+}
+
+// ============================================
+// Task Form Handler (for New Task Dialog)
 // ============================================
 
 async function handleFormSubmit(e) {
     e.preventDefault();
 
     const formData = new FormData(taskForm);
-    const id = formData.get('id');
     const data = {
         title: formData.get('title'),
         acceptance_criteria: formData.get('acceptance_criteria'),
         priority: formData.get('priority')
     };
 
-    // For new tasks, only include test file/function if "Generate test file" is checked
-    // For existing tasks (editing), always include test file/function if specified
+    // Include test file/function if "Generate test file" is checked
     const testFile = formData.get('test_file');
     const testFunc = formData.get('test_func');
-    const isNewTask = !id;
-    const shouldIncludeTestInfo = isNewTask
-        ? (generateTestFileCheckbox && generateTestFileCheckbox.checked)
-        : true;
+    const shouldIncludeTestInfo = generateTestFileCheckbox && generateTestFileCheckbox.checked;
 
     if (shouldIncludeTestInfo && testFile && testFunc) {
         data.test_file = testFile;
         data.test_func = testFunc;
     }
 
-    // Include generate_test_file flag for new tasks
-    if (isNewTask && generateTestFileCheckbox) {
+    // Include generate_test_file flag
+    if (generateTestFileCheckbox) {
         data.generate_test_file = generateTestFileCheckbox.checked;
     }
 
     try {
-        if (id) {
-            await updateTask(id, data);
-        } else {
-            await createTask(data);
-            showNotification(`"${data.title}" was created successfully!`, 'success');
-        }
+        await createTask(data);
+        showNotification(`"${data.title}" was created successfully!`, 'success');
         taskModal.close();
         await loadTasks();
     } catch (error) {
-        console.error('Failed to save task:', error);
-        alert('Failed to save task. Please try again.');
+        console.error('Failed to create task:', error);
+        showNotification('Failed to create task. Please try again.', 'error');
     }
 }
 
@@ -1715,7 +1944,7 @@ async function handleRunTest(taskId, button) {
         }
     } catch (error) {
         console.error('Failed to run test:', error);
-        alert('Failed to run test. Please try again.');
+        showNotification('Failed to run test. Please try again.', 'error');
     } finally {
         button.classList.remove('running');
         button.innerHTML = '&#9658;'; // Play

@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=45">
+    <link rel="stylesheet" href="/static/css/styles.css?v=48">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -85,14 +85,50 @@
         {{template "board.html" .}}
     </main>
 
-    <!-- Add/Edit Task Dialog -->
-    <dialog id="task-modal" class="dialog-base">
-        <div class="dialog-content">
-            <header class="mb-6">
-                <h2 id="modal-title" class="text-xl font-semibold tracking-tight text-foreground">New Task</h2>
-                <div id="modal-task-id-wrapper" class="flex items-center gap-2 mt-1 hidden">
-                    <p id="modal-task-id" class="text-sm text-muted-foreground"></p>
-                    <button type="button" id="copy-task-id-btn" class="copy-btn" title="Copy task ID">
+    <!-- Task View Panel (slides in from right) -->
+    <div id="task-panel-overlay" class="task-panel-overlay"></div>
+    <aside id="task-panel" class="task-panel">
+        <div class="task-panel-content">
+            <!-- Panel Header -->
+            <header class="task-panel-header">
+                <div class="flex items-center justify-between gap-2">
+                    <button type="button" id="panel-close-btn" class="panel-close-btn" aria-label="Close panel">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                    <div class="flex-1 min-w-0">
+                        <!-- Title Display (default) -->
+                        <div id="panel-title-display" class="flex items-center gap-2">
+                            <h2 id="panel-title" class="text-xl font-semibold tracking-tight text-foreground truncate"></h2>
+                            <button type="button" id="panel-edit-title-btn" class="edit-title-btn" title="Edit title">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+                                    <path d="m15 5 4 4"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <!-- Title Edit (hidden by default) -->
+                        <div id="panel-title-edit" class="hidden flex items-center gap-2">
+                            <input type="text" id="panel-title-input" name="title" class="input-field flex-1" required placeholder="Task title">
+                            <button type="button" id="panel-save-title-btn" class="btn-primary px-2 py-1" title="Save">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+                            </button>
+                            <button type="button" id="panel-cancel-title-btn" class="btn-secondary px-2 py-1" title="Cancel">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="panel-task-id-wrapper" class="flex items-center gap-2 mt-1">
+                    <p id="panel-task-id" class="text-sm text-muted-foreground font-mono"></p>
+                    <button type="button" id="copy-panel-task-id-btn" class="copy-btn" title="Copy task ID">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -101,29 +137,93 @@
                 </div>
             </header>
 
-            <!-- Task Metadata (shown only when editing) -->
-            <div id="task-metadata" class="hidden mb-6 p-4 rounded-lg bg-muted/50 border border-border">
+            <!-- Task Metadata -->
+            <div id="panel-task-metadata" class="hidden mx-6 mt-4 p-4 rounded-lg bg-muted/50 border border-border">
                 <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div id="metadata-created" class="hidden">
+                    <div id="panel-metadata-created" class="hidden">
                         <span class="text-muted-foreground">Created</span>
                         <p class="text-foreground mt-0.5">
-                            <span id="metadata-created-at"></span>
-                            <span id="metadata-created-by" class="text-muted-foreground"></span>
+                            <span id="panel-metadata-created-at"></span>
+                            <span id="panel-metadata-created-by" class="text-muted-foreground"></span>
                         </p>
                     </div>
-                    <div id="metadata-updated" class="hidden">
+                    <div id="panel-metadata-updated" class="hidden">
                         <span class="text-muted-foreground">Last Modified</span>
                         <p class="text-foreground mt-0.5">
-                            <span id="metadata-updated-at"></span>
-                            <span id="metadata-updated-by" class="text-muted-foreground"></span>
+                            <span id="panel-metadata-updated-at"></span>
+                            <span id="panel-metadata-updated-by" class="text-muted-foreground"></span>
                         </p>
                     </div>
                 </div>
             </div>
 
-            <form id="task-form" class="space-y-5">
-                <input type="hidden" id="task-id" name="id">
+            <!-- Task Form -->
+            <form id="panel-task-form" class="task-panel-form">
+                <input type="hidden" id="panel-task-id-input" name="id">
 
+                <div class="space-y-2">
+                    <label for="panel-criteria-input" class="text-sm font-medium text-foreground">Acceptance Criteria</label>
+                    <textarea id="panel-criteria-input" name="acceptance_criteria" class="input-field min-h-[180px] resize-y" placeholder="What should the test verify? When is this task complete?"></textarea>
+                </div>
+
+                <div class="space-y-2">
+                    <span class="text-sm font-medium text-foreground">Priority</span>
+                    <div class="flex gap-4 mt-2">
+                        <label class="priority-option">
+                            <input type="radio" name="panel-priority" value="low" class="sr-only peer">
+                            <span class="priority-badge priority-low peer-checked:ring-2 peer-checked:ring-primary peer-checked:ring-offset-2 peer-checked:ring-offset-background">Low</span>
+                        </label>
+                        <label class="priority-option">
+                            <input type="radio" name="panel-priority" value="medium" class="sr-only peer" checked>
+                            <span class="priority-badge priority-medium peer-checked:ring-2 peer-checked:ring-warning peer-checked:ring-offset-2 peer-checked:ring-offset-background">Medium</span>
+                        </label>
+                        <label class="priority-option">
+                            <input type="radio" name="panel-priority" value="high" class="sr-only peer">
+                            <span class="priority-badge priority-high peer-checked:ring-2 peer-checked:ring-destructive peer-checked:ring-offset-2 peer-checked:ring-offset-background">High</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Test Configuration -->
+                <details id="panel-test-details" class="border-t border-border pt-4 mt-4">
+                    <summary class="flex items-center gap-2 cursor-pointer text-muted-foreground text-sm hover:text-foreground transition-colors">
+                        <svg class="w-3 h-3 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                        Test Configuration
+                    </summary>
+                    <div class="pt-4 grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label for="panel-test-file" class="text-sm font-medium text-foreground">Test File</label>
+                            <input type="text" id="panel-test-file" name="test_file" class="input-field" placeholder="e.g., auth_test.go">
+                        </div>
+                        <div class="space-y-2">
+                            <label for="panel-test-func" class="text-sm font-medium text-foreground">Test Function</label>
+                            <input type="text" id="panel-test-func" name="test_func" class="input-field" placeholder="e.g., TestLogin">
+                        </div>
+                    </div>
+                </details>
+            </form>
+
+            <!-- Panel Footer -->
+            <footer class="task-panel-footer">
+                <button type="button" id="panel-delete-btn" class="btn-destructive">Delete</button>
+                <div class="flex gap-3">
+                    <button type="button" id="panel-cancel-btn" class="btn-secondary">Cancel</button>
+                    <button type="submit" id="panel-save-btn" form="panel-task-form" class="btn-primary">Save Changes</button>
+                </div>
+            </footer>
+        </div>
+    </aside>
+
+    <!-- New Task Dialog (for creating new tasks only) -->
+    <dialog id="task-modal" class="dialog-base">
+        <div class="dialog-content">
+            <header class="mb-6">
+                <h2 class="text-xl font-semibold tracking-tight text-foreground">New Task</h2>
+            </header>
+
+            <form id="task-form" class="space-y-5">
                 <div class="space-y-2">
                     <label for="title" class="text-sm font-medium text-foreground">Title</label>
                     <input type="text" id="title" name="title" class="input-field" required placeholder="What feature needs to pass? (e.g., User Login)">
@@ -191,12 +291,9 @@
                     </div>
                 </details>
 
-                <footer class="flex justify-between pt-4">
-                    <button type="button" id="modal-delete-btn" class="btn-destructive hidden">Delete</button>
-                    <div class="flex gap-3 ml-auto">
-                        <button type="button" class="btn-secondary cancel-btn" onclick="this.closest('dialog').close()">Cancel</button>
-                        <button type="submit" class="btn-primary">Save Task</button>
-                    </div>
+                <footer class="flex justify-end gap-3 pt-4">
+                    <button type="button" class="btn-secondary cancel-btn" onclick="this.closest('dialog').close()">Cancel</button>
+                    <button type="submit" class="btn-primary">Create Task</button>
                 </footer>
             </form>
 
@@ -259,7 +356,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=26"></script>
+    <script src="/static/js/app.js?v=28"></script>
 </body>
 </html>
 {{end}}
