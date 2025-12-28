@@ -267,3 +267,30 @@ func (h *APIHandler) ReorderColumns(w http.ResponseWriter, r *http.Request) {
 	columns := h.store.GetColumns()
 	respondJSON(w, http.StatusOK, columns)
 }
+
+// ReorderTask moves a task to a specific position within a column
+func (h *APIHandler) ReorderTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Column   string `json:"column"`
+		Position int    `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Column == "" {
+		respondError(w, http.StatusBadRequest, "Column is required")
+		return
+	}
+
+	task, err := h.store.Reorder(id, models.Column(req.Column), req.Position)
+	if err != nil {
+		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, task)
+}

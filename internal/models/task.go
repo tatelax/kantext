@@ -59,6 +59,7 @@ type Task struct {
 	TestStatus         TestStatus `json:"test_status"`
 	LastRun            *time.Time `json:"last_run,omitempty"`
 	LastOutput         string     `json:"last_output,omitempty"`
+	Order              int        `json:"-"` // Internal order tracking, not exposed to JSON
 }
 
 // CreateTaskRequest is the request body for creating a task

@@ -420,7 +420,35 @@ details[open] .details-arrow {
 
 .task-list.drag-over {
     background-color: hsla(217.2, 91.2%, 59.8%, 0.05);
-    border: 2px dashed var(--primary);
+}
+
+/* Drop indicator - shows where card will be inserted */
+.drop-indicator {
+    height: 0;
+    margin: 0;
+    border-radius: 0.5rem;
+    background: linear-gradient(90deg, var(--primary), hsla(217.2, 91.2%, 59.8%, 0.5));
+    opacity: 0;
+    transition: height 0.15s ease-out, opacity 0.15s ease-out, margin 0.15s ease-out;
+    pointer-events: none;
+    flex-shrink: 0;
+}
+
+.drop-indicator.visible {
+    height: 4px;
+    margin: 0.5rem 0;
+    opacity: 1;
+}
+
+/* Cards make room for drop indicator */
+.task-card.make-room-above {
+    transform: translateY(8px);
+    transition: transform 0.15s ease-out;
+}
+
+.task-card.make-room-below {
+    transform: translateY(-8px);
+    transition: transform 0.15s ease-out;
 }
 
 /* Task Cards */

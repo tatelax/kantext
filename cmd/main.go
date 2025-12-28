@@ -118,6 +118,7 @@ func main() {
 		r.Delete("/tasks/{id}", apiHandler.DeleteTask)
 		r.Post("/tasks/{id}/run", apiHandler.RunTest)
 		r.Get("/tasks/{id}/status", apiHandler.GetTaskStatus)
+		r.Put("/tasks/{id}/reorder", apiHandler.ReorderTask)
 
 		// Column routes
 		r.Get("/columns", apiHandler.ListColumns)

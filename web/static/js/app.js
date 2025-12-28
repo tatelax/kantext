@@ -20,6 +20,11 @@ let lastMouseY = 0;
 let mouseVelocityX = 0;
 let dragAnimationFrame = null;
 
+// Drop position state
+let dropIndicator = null;
+let currentDropTarget = null; // The task list we're hovering over
+let currentDropIndex = -1; // Index where the card will be inserted
+
 // DOM Elements
 const addTaskBtn = document.getElementById('add-task-btn');
 const taskModal = document.getElementById('task-modal');
@@ -39,12 +44,107 @@ document.addEventListener('DOMContentLoaded', () => {
     initNotificationSystem();
     initThemeToggle();
     initDeleteDropZone();
+    initDropIndicator();
     initDialogBackdropClose();
     loadColumns().then(() => loadTasks());
     setupEventListeners();
     console.log('[Init] Setting up WebSocket connection...');
     connectWebSocket();
 });
+
+// ============================================
+// Drop Indicator
+// ============================================
+
+/**
+ * Initialize the drop indicator element used for showing
+ * where a dragged card will be inserted.
+ */
+function initDropIndicator() {
+    dropIndicator = document.createElement('div');
+    dropIndicator.className = 'drop-indicator';
+}
+
+/**
+ * Shows the drop indicator at the specified position in a task list.
+ * @param {HTMLElement} taskList - The task list container
+ * @param {number} index - The index where the indicator should appear
+ */
+function showDropIndicator(taskList, index) {
+    if (!dropIndicator || !taskList) return;
+
+    // Get all cards in the list (excluding the dragged one and the indicator)
+    const cards = Array.from(taskList.querySelectorAll('.task-card:not(.dragging)'));
+
+    // Remove indicator from current position if it's elsewhere
+    if (dropIndicator.parentElement && dropIndicator.parentElement !== taskList) {
+        dropIndicator.classList.remove('visible');
+        dropIndicator.remove();
+    }
+
+    // Insert indicator at the correct position
+    if (index >= cards.length) {
+        // Insert at the end
+        taskList.appendChild(dropIndicator);
+    } else {
+        // Insert before the card at this index
+        taskList.insertBefore(dropIndicator, cards[index]);
+    }
+
+    // Trigger animation
+    requestAnimationFrame(() => {
+        dropIndicator.classList.add('visible');
+    });
+
+    currentDropTarget = taskList;
+    currentDropIndex = index;
+}
+
+/**
+ * Hides and removes the drop indicator.
+ */
+function hideDropIndicator() {
+    if (!dropIndicator) return;
+
+    dropIndicator.classList.remove('visible');
+
+    // Remove after animation completes
+    setTimeout(() => {
+        if (dropIndicator.parentElement) {
+            dropIndicator.remove();
+        }
+    }, 150);
+
+    currentDropTarget = null;
+    currentDropIndex = -1;
+}
+
+/**
+ * Calculates the drop index based on mouse Y position within a task list.
+ * @param {HTMLElement} taskList - The task list container
+ * @param {number} mouseY - The current mouse Y position
+ * @returns {number} The index where the card should be inserted
+ */
+function calculateDropIndex(taskList, mouseY) {
+    const cards = Array.from(taskList.querySelectorAll('.task-card:not(.dragging)'));
+
+    if (cards.length === 0) {
+        return 0;
+    }
+
+    for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        const rect = card.getBoundingClientRect();
+        const cardMiddle = rect.top + rect.height / 2;
+
+        if (mouseY < cardMiddle) {
+            return i;
+        }
+    }
+
+    // Mouse is below all cards
+    return cards.length;
+}
 
 // ============================================
 // Dialog Backdrop Close
@@ -1610,6 +1710,9 @@ function handleDragEnd(e) {
     // Remove the custom drag ghost with settle animation
     removeDragGhost(e.target);
 
+    // Hide drop indicator
+    hideDropIndicator();
+
     // Remove all drag-over states
     document.querySelectorAll('.task-list').forEach(list => {
         list.classList.remove('drag-over');
@@ -1718,11 +1821,26 @@ function handleDragOver(e) {
 
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    e.currentTarget.classList.add('drag-over');
+
+    const taskList = e.currentTarget;
+    taskList.classList.add('drag-over');
+
+    // Calculate and show drop indicator at the correct position
+    const dropIndex = calculateDropIndex(taskList, e.clientY);
+    showDropIndicator(taskList, dropIndex);
 }
 
 function handleDragLeave(e) {
-    e.currentTarget.classList.remove('drag-over');
+    const taskList = e.currentTarget;
+
+    // Check if we're actually leaving the task list (not just entering a child)
+    const relatedTarget = e.relatedTarget;
+    if (relatedTarget && taskList.contains(relatedTarget)) {
+        return; // Still inside the task list
+    }
+
+    taskList.classList.remove('drag-over');
+    hideDropIndicator();
 }
 
 async function handleDrop(e) {
@@ -1734,6 +1852,12 @@ async function handleDrop(e) {
     const newColumn = e.currentTarget.dataset.column;
     const targetList = e.currentTarget;
 
+    // Capture drop position before hiding indicator
+    const dropIndex = currentDropIndex;
+
+    // Hide the drop indicator
+    hideDropIndicator();
+
     if (!taskId || !newColumn) return;
 
     // Find the card and task
@@ -1743,39 +1867,107 @@ async function handleDrop(e) {
     if (!card || !task) return;
 
     const oldColumn = task.column;
+    const oldIndex = getTaskIndexInColumn(taskId, oldColumn);
 
-    // If dropping in the same column, no change needed
-    if (oldColumn === newColumn) return;
+    // Check if anything is actually changing
+    const sameColumn = oldColumn === newColumn;
+    const samePosition = sameColumn && oldIndex === dropIndex;
 
-    // Optimistic update: immediately move the card in DOM
-    targetList.appendChild(card);
+    if (samePosition) return;
 
-    // Update local state immediately
+    // Optimistic update: immediately move the card in DOM at the correct position
+    const cards = Array.from(targetList.querySelectorAll('.task-card:not(.dragging)'));
+
+    if (dropIndex >= cards.length) {
+        targetList.appendChild(card);
+    } else {
+        targetList.insertBefore(card, cards[dropIndex]);
+    }
+
+    // Update local state
     task.column = newColumn;
 
-    // Update task counts immediately
+    // Reorder the tasks array to match the new visual order
+    reorderLocalTasks(taskId, newColumn, dropIndex);
+
+    // Update task counts
     updateTaskCounts();
 
     try {
-        await updateTask(taskId, { column: newColumn });
-        // Success - state is already updated, nothing more to do
+        // Send reorder request to API
+        await reorderTask(taskId, newColumn, dropIndex);
+        // Success - state is already updated
     } catch (error) {
         console.error('Failed to move task:', error);
 
-        // Rollback: move card back to original column
-        const originalList = document.querySelector(`.task-list[data-column="${oldColumn}"]`);
-        if (originalList && card) {
-            originalList.appendChild(card);
-        }
-
-        // Rollback local state
-        task.column = oldColumn;
-
-        // Update counts again after rollback
-        updateTaskCounts();
+        // Rollback: reload tasks from server
+        await loadTasks();
 
         showNotification('Failed to move task. Please try again.', 'error');
     }
+}
+
+/**
+ * Gets the current index of a task within its column.
+ */
+function getTaskIndexInColumn(taskId, column) {
+    const columnTasks = tasks.filter(t => t.column === column);
+    return columnTasks.findIndex(t => t.id === taskId);
+}
+
+/**
+ * Reorders the local tasks array to reflect a task move.
+ */
+function reorderLocalTasks(taskId, newColumn, newIndex) {
+    // Remove task from its current position
+    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    if (taskIndex === -1) return;
+
+    const [task] = tasks.splice(taskIndex, 1);
+    task.column = newColumn;
+
+    // Find the correct position in the tasks array
+    // by looking at tasks in the target column
+    const columnTasks = tasks.filter(t => t.column === newColumn);
+
+    if (newIndex >= columnTasks.length) {
+        // Insert after the last task in this column
+        const lastColumnTask = columnTasks[columnTasks.length - 1];
+        if (lastColumnTask) {
+            const insertAfterIndex = tasks.indexOf(lastColumnTask);
+            tasks.splice(insertAfterIndex + 1, 0, task);
+        } else {
+            // No tasks in column, add at end
+            tasks.push(task);
+        }
+    } else {
+        // Insert before the task currently at this index
+        const targetTask = columnTasks[newIndex];
+        if (targetTask) {
+            const insertBeforeIndex = tasks.indexOf(targetTask);
+            tasks.splice(insertBeforeIndex, 0, task);
+        } else {
+            tasks.push(task);
+        }
+    }
+}
+
+/**
+ * Sends a reorder request to the API.
+ */
+async function reorderTask(taskId, column, position) {
+    const response = await fetch(`${API_BASE}/tasks/${taskId}/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ column, position })
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to reorder task');
+    }
+
+    return response.json();
 }
 
 /**

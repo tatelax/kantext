@@ -63,6 +63,7 @@ func (s *TaskStore) Load() error {
 	newTaskNoTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
 	oldTaskRegex := regexp.MustCompile(`^- \[([ x-])\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
 	columnRegex := regexp.MustCompile(`^## (.+)$`)
+	taskOrder := 0 // Track order of tasks as they appear in file
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -99,7 +100,9 @@ func (s *TaskStore) Load() error {
 				AcceptanceCriteria: strings.TrimSpace(matches[6]),
 				Column:             currentColumn,
 				TestStatus:         models.TestStatusPending,
+				Order:              taskOrder,
 			}
+			taskOrder++
 
 			switch matches[1] {
 			case "x":
@@ -128,7 +131,9 @@ func (s *TaskStore) Load() error {
 				AcceptanceCriteria: strings.TrimSpace(matches[4]),
 				Column:             currentColumn,
 				TestStatus:         models.TestStatusPending,
+				Order:              taskOrder,
 			}
+			taskOrder++
 
 			// For tasks without tests, checkbox status doesn't change test status
 			// since there's no test. We keep it as pending.
@@ -153,7 +158,9 @@ func (s *TaskStore) Load() error {
 				Priority:           models.PriorityMedium, // Default for old tasks
 				Column:             currentColumn,
 				TestStatus:         models.TestStatusPending,
+				Order:              taskOrder,
 			}
+			taskOrder++
 
 			switch matches[1] {
 			case "x":
@@ -221,18 +228,9 @@ func (s *TaskStore) getTasksByColumn(column models.Column) []*models.Task {
 			tasks = append(tasks, task)
 		}
 	}
-	// Sort by priority (high, medium, low) then by ID for stable ordering
-	priorityOrder := map[models.Priority]int{
-		models.PriorityHigh:   0,
-		models.PriorityMedium: 1,
-		models.PriorityLow:    2,
-	}
+	// Sort by Order to preserve file order
 	sort.Slice(tasks, func(i, j int) bool {
-		if priorityOrder[tasks[i].Priority] != priorityOrder[tasks[j].Priority] {
-			return priorityOrder[tasks[i].Priority] < priorityOrder[tasks[j].Priority]
-		}
-		// Secondary sort by ID for stable ordering
-		return tasks[i].ID < tasks[j].ID
+		return tasks[i].Order < tasks[j].Order
 	})
 	return tasks
 }
@@ -463,7 +461,7 @@ func (s *TaskStore) ReorderColumns(slugs []string) error {
 	return err
 }
 
-// GetAll returns all tasks sorted by priority
+// GetAll returns all tasks in file order
 func (s *TaskStore) GetAll() []*models.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -473,17 +471,9 @@ func (s *TaskStore) GetAll() []*models.Task {
 		tasks = append(tasks, task)
 	}
 
-	// Sort by priority (high, medium, low) then by ID for stable ordering
-	priorityOrder := map[models.Priority]int{
-		models.PriorityHigh:   0,
-		models.PriorityMedium: 1,
-		models.PriorityLow:    2,
-	}
+	// Sort by Order to preserve file order
 	sort.Slice(tasks, func(i, j int) bool {
-		if priorityOrder[tasks[i].Priority] != priorityOrder[tasks[j].Priority] {
-			return priorityOrder[tasks[i].Priority] < priorityOrder[tasks[j].Priority]
-		}
-		return tasks[i].ID < tasks[j].ID
+		return tasks[i].Order < tasks[j].Order
 	})
 
 	return tasks
@@ -676,4 +666,69 @@ func (s *TaskStore) SetTestRunning(id string) error {
 
 	task.TestStatus = models.TestStatusRunning
 	return nil
+}
+
+// Reorder moves a task to a specific position within a column
+func (s *TaskStore) Reorder(id string, column models.Column, position int) (*models.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[id]
+	if !ok {
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+
+	// Update the column
+	task.Column = column
+
+	// Get all tasks in the target column (excluding the task being moved)
+	var columnTasks []*models.Task
+	for _, t := range s.tasks {
+		if t.Column == column && t.ID != id {
+			columnTasks = append(columnTasks, t)
+		}
+	}
+
+	// Sort by current order
+	sort.Slice(columnTasks, func(i, j int) bool {
+		return columnTasks[i].Order < columnTasks[j].Order
+	})
+
+	// Clamp position to valid range
+	if position < 0 {
+		position = 0
+	}
+	if position > len(columnTasks) {
+		position = len(columnTasks)
+	}
+
+	// Insert task at the specified position and reassign orders
+	// We need to give tasks in this column sequential orders
+	// First, find the order range we need to use
+	baseOrder := 0
+	if len(columnTasks) > 0 {
+		// Use the minimum order from existing tasks as base
+		baseOrder = columnTasks[0].Order
+	}
+
+	// Reassign orders for tasks in this column
+	for i, t := range columnTasks {
+		if i < position {
+			t.Order = baseOrder + i
+		} else {
+			t.Order = baseOrder + i + 1
+		}
+	}
+	task.Order = baseOrder + position
+
+	// Save to file
+	s.mu.Unlock()
+	err := s.Save()
+	s.mu.Lock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
 }
