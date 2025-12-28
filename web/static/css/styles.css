@@ -633,11 +633,12 @@ details[open] .details-arrow {
 
 /* Add Column Button (inline, styled like a column) */
 .add-column-btn-inline {
-    flex-shrink: 0;
-    min-width: 200px;
+    flex: 1;
+    min-width: 300px;
+    max-width: 28rem;
     height: auto;
     align-self: flex-start;
-    background-color: var(--card);
+    background-color: transparent;
     border: 2px dashed var(--border);
     border-radius: 0.75rem;
     padding: 1rem;
