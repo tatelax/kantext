@@ -60,6 +60,10 @@ type Task struct {
 	LastRun            *time.Time `json:"last_run,omitempty"`
 	LastOutput         string     `json:"last_output,omitempty"`
 	Order              int        `json:"-"` // Internal order tracking, not exposed to JSON
+	CreatedAt          time.Time  `json:"created_at"`
+	CreatedBy          string     `json:"created_by"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	UpdatedBy          string     `json:"updated_by"`
 }
 
 // CreateTaskRequest is the request body for creating a task
@@ -67,9 +71,10 @@ type CreateTaskRequest struct {
 	Title              string   `json:"title"`
 	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Priority           Priority `json:"priority"`
-	TestFile           string   `json:"test_file,omitempty"`           // Optional: specify existing test file
-	TestFunc           string   `json:"test_func,omitempty"`           // Optional: specify existing test function
-	GenerateTestFile   *bool    `json:"generate_test_file,omitempty"`  // Optional: whether to generate test file (default: true)
+	TestFile           string   `json:"test_file,omitempty"`          // Optional: specify existing test file
+	TestFunc           string   `json:"test_func,omitempty"`          // Optional: specify existing test function
+	GenerateTestFile   *bool    `json:"generate_test_file,omitempty"` // Optional: whether to generate test file (default: true)
+	Author             string   `json:"author,omitempty"`             // Optional: who is creating this task
 }
 
 // UpdateTaskRequest is the request body for updating a task
@@ -78,6 +83,7 @@ type UpdateTaskRequest struct {
 	AcceptanceCriteria *string   `json:"acceptance_criteria,omitempty"`
 	Priority           *Priority `json:"priority,omitempty"`
 	Column             *Column   `json:"column,omitempty"`
+	Author             string    `json:"author,omitempty"` // Optional: who is updating this task
 }
 
 // TestResult represents the result of running a test

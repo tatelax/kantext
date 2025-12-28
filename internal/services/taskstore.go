@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"kantext/internal/models"
 
@@ -55,26 +56,53 @@ func (s *TaskStore) Load() error {
 	var currentColumn models.Column
 	columnOrder := 0
 
-	// New format with test: - [ ] [priority] Title | test_file:TestFunc | AcceptanceCriteria <!-- id:uuid -->
-	// New format without test: - [ ] [priority] Title | AcceptanceCriteria <!-- id:uuid -->
-	// Checkbox states: [ ] = pending, [x] = passed, [-] = failed
-	// Also support old format for backwards compatibility
-	newTaskWithTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
-	newTaskNoTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
-	oldTaskRegex := regexp.MustCompile(`^- \[([ x-])\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	// Regex patterns
 	columnRegex := regexp.MustCompile(`^## (.+)$`)
-	taskOrder := 0 // Track order of tasks as they appear in file
+	// New nested format: - [ ] Task title (checkbox can be space, x, or -)
+	taskTitleRegex := regexp.MustCompile(`^- \[([ x-])\] (.+)$`)
+	// Metadata line: - key: value (with 2-space indent)
+	metadataRegex := regexp.MustCompile(`^  - ([^:]+): (.*)$`)
+	// Legacy format for backward compatibility
+	legacyTaskWithTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	legacyTaskNoTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	legacyOldTaskRegex := regexp.MustCompile(`^- \[([ x-])\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
 
+	taskOrder := 0
+	var currentTask *models.Task
+	var lines []string
+
+	// Read all lines first
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Helper to finalize current task
+	finalizeTask := func() {
+		if currentTask != nil {
+			if currentTask.ID == "" {
+				currentTask.ID = uuid.New().String()
+			}
+			currentTask.Order = taskOrder
+			taskOrder++
+			s.tasks[currentTask.ID] = currentTask
+			currentTask = nil
+		}
+	}
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmedLine := strings.TrimSpace(line)
 
 		// Check for column headers (## Section Name)
-		if matches := columnRegex.FindStringSubmatch(line); matches != nil {
+		if matches := columnRegex.FindStringSubmatch(trimmedLine); matches != nil {
+			finalizeTask()
 			columnName := strings.TrimSpace(matches[1])
 			slug := models.NameToSlug(columnName)
 			currentColumn = models.Column(slug)
 
-			// Add to columns list
 			s.columns = append(s.columns, models.ColumnDefinition{
 				Slug:  slug,
 				Name:  columnName,
@@ -84,94 +112,86 @@ func (s *TaskStore) Load() error {
 			continue
 		}
 
-		// Try new format with test first
-		if matches := newTaskWithTestRegex.FindStringSubmatch(line); matches != nil {
-			id := matches[7]
-			if id == "" {
-				id = uuid.New().String()
+		// Check for metadata line (indented with 2 spaces)
+		if strings.HasPrefix(line, "  - ") && currentTask != nil {
+			if matches := metadataRegex.FindStringSubmatch(line); matches != nil {
+				key := strings.TrimSpace(matches[1])
+				value := strings.TrimSpace(matches[2])
+
+				switch key {
+				case "id":
+					currentTask.ID = value
+				case "priority":
+					currentTask.Priority = models.Priority(value)
+				case "test":
+					// Parse test: file:TestFunc
+					parts := strings.SplitN(value, ":", 2)
+					if len(parts) == 2 {
+						currentTask.TestFile = parts[0]
+						currentTask.TestFunc = parts[1]
+					}
+				case "criteria":
+					currentTask.AcceptanceCriteria = value
+				case "created_at":
+					if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
+						currentTask.CreatedAt = t
+					}
+				case "created_by":
+					currentTask.CreatedBy = value
+				case "updated_at":
+					if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
+						currentTask.UpdatedAt = t
+					}
+				case "updated_by":
+					currentTask.UpdatedBy = value
+				}
+				continue
+			}
+		}
+
+		// Check for new nested format task title
+		if matches := taskTitleRegex.FindStringSubmatch(trimmedLine); matches != nil {
+			// Check if this looks like a legacy format (contains | separator)
+			if strings.Contains(matches[2], " | ") {
+				// Try legacy formats first
+				if legacyMatches := legacyTaskWithTestRegex.FindStringSubmatch(trimmedLine); legacyMatches != nil {
+					finalizeTask()
+					currentTask = s.parseLegacyTaskWithTest(legacyMatches, currentColumn)
+					continue
+				}
+				if legacyMatches := legacyTaskNoTestRegex.FindStringSubmatch(trimmedLine); legacyMatches != nil {
+					finalizeTask()
+					currentTask = s.parseLegacyTaskNoTest(legacyMatches, currentColumn)
+					continue
+				}
+				if legacyMatches := legacyOldTaskRegex.FindStringSubmatch(trimmedLine); legacyMatches != nil {
+					finalizeTask()
+					currentTask = s.parseLegacyOldTask(legacyMatches, currentColumn)
+					continue
+				}
 			}
 
-			task := &models.Task{
-				ID:                 id,
-				Priority:           models.Priority(matches[2]),
-				Title:              strings.TrimSpace(matches[3]),
-				TestFile:           strings.TrimSpace(matches[4]),
-				TestFunc:           strings.TrimSpace(matches[5]),
-				AcceptanceCriteria: strings.TrimSpace(matches[6]),
-				Column:             currentColumn,
-				TestStatus:         models.TestStatusPending,
-				Order:              taskOrder,
+			// New nested format
+			finalizeTask()
+			currentTask = &models.Task{
+				Title:      strings.TrimSpace(matches[2]),
+				Column:     currentColumn,
+				Priority:   models.PriorityMedium, // Default
+				TestStatus: models.TestStatusPending,
 			}
-			taskOrder++
 
 			switch matches[1] {
 			case "x":
-				task.TestStatus = models.TestStatusPassed
+				currentTask.TestStatus = models.TestStatusPassed
 			case "-":
-				task.TestStatus = models.TestStatusFailed
+				currentTask.TestStatus = models.TestStatusFailed
 			}
-
-			s.tasks[task.ID] = task
 			continue
-		}
-
-		// Try new format without test
-		if matches := newTaskNoTestRegex.FindStringSubmatch(line); matches != nil {
-			id := matches[5]
-			if id == "" {
-				id = uuid.New().String()
-			}
-
-			task := &models.Task{
-				ID:                 id,
-				Priority:           models.Priority(matches[2]),
-				Title:              strings.TrimSpace(matches[3]),
-				TestFile:           "", // No test
-				TestFunc:           "", // No test
-				AcceptanceCriteria: strings.TrimSpace(matches[4]),
-				Column:             currentColumn,
-				TestStatus:         models.TestStatusPending,
-				Order:              taskOrder,
-			}
-			taskOrder++
-
-			// For tasks without tests, checkbox status doesn't change test status
-			// since there's no test. We keep it as pending.
-
-			s.tasks[task.ID] = task
-			continue
-		}
-
-		// Fall back to old format
-		if matches := oldTaskRegex.FindStringSubmatch(line); matches != nil {
-			id := matches[6]
-			if id == "" {
-				id = uuid.New().String()
-			}
-
-			task := &models.Task{
-				ID:                 id,
-				Title:              strings.TrimSpace(matches[2]),
-				TestFile:           strings.TrimSpace(matches[3]),
-				TestFunc:           strings.TrimSpace(matches[4]),
-				AcceptanceCriteria: strings.TrimSpace(matches[5]),
-				Priority:           models.PriorityMedium, // Default for old tasks
-				Column:             currentColumn,
-				TestStatus:         models.TestStatusPending,
-				Order:              taskOrder,
-			}
-			taskOrder++
-
-			switch matches[1] {
-			case "x":
-				task.TestStatus = models.TestStatusPassed
-			case "-":
-				task.TestStatus = models.TestStatusFailed
-			}
-
-			s.tasks[task.ID] = task
 		}
 	}
+
+	// Finalize last task
+	finalizeTask()
 
 	// If no columns were found, create defaults
 	if len(s.columns) == 0 {
@@ -182,7 +202,130 @@ func (s *TaskStore) Load() error {
 		}
 	}
 
-	return scanner.Err()
+	// Normalize tasks - fill in missing required fields
+	needsSave := s.normalizeTasksLocked()
+
+	// If normalization made changes, save the file
+	if needsSave {
+		s.mu.Unlock()
+		err := s.Save()
+		s.mu.Lock()
+		if err != nil {
+			return fmt.Errorf("failed to save after normalization: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// normalizeTasksLocked checks all tasks for missing required fields and fills them in.
+// Returns true if any changes were made. Must be called with the lock held.
+func (s *TaskStore) normalizeTasksLocked() bool {
+	changed := false
+	now := time.Now().UTC()
+
+	for _, task := range s.tasks {
+		// Check and fill missing ID
+		if task.ID == "" {
+			task.ID = uuid.New().String()
+			changed = true
+		}
+
+		// Check and fill missing priority
+		if task.Priority == "" {
+			task.Priority = models.PriorityMedium
+			changed = true
+		}
+
+		// Check and fill missing created_at
+		if task.CreatedAt.IsZero() {
+			task.CreatedAt = now
+			changed = true
+		}
+
+		// Check and fill missing updated_at
+		if task.UpdatedAt.IsZero() {
+			task.UpdatedAt = now
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+// parseLegacyTaskWithTest parses the old format with test reference
+func (s *TaskStore) parseLegacyTaskWithTest(matches []string, column models.Column) *models.Task {
+	id := matches[7]
+	if id == "" {
+		id = uuid.New().String()
+	}
+
+	task := &models.Task{
+		ID:                 id,
+		Priority:           models.Priority(matches[2]),
+		Title:              strings.TrimSpace(matches[3]),
+		TestFile:           strings.TrimSpace(matches[4]),
+		TestFunc:           strings.TrimSpace(matches[5]),
+		AcceptanceCriteria: strings.TrimSpace(matches[6]),
+		Column:             column,
+		TestStatus:         models.TestStatusPending,
+	}
+
+	switch matches[1] {
+	case "x":
+		task.TestStatus = models.TestStatusPassed
+	case "-":
+		task.TestStatus = models.TestStatusFailed
+	}
+
+	return task
+}
+
+// parseLegacyTaskNoTest parses the old format without test reference
+func (s *TaskStore) parseLegacyTaskNoTest(matches []string, column models.Column) *models.Task {
+	id := matches[5]
+	if id == "" {
+		id = uuid.New().String()
+	}
+
+	task := &models.Task{
+		ID:                 id,
+		Priority:           models.Priority(matches[2]),
+		Title:              strings.TrimSpace(matches[3]),
+		AcceptanceCriteria: strings.TrimSpace(matches[4]),
+		Column:             column,
+		TestStatus:         models.TestStatusPending,
+	}
+
+	return task
+}
+
+// parseLegacyOldTask parses the oldest format (no priority brackets)
+func (s *TaskStore) parseLegacyOldTask(matches []string, column models.Column) *models.Task {
+	id := matches[6]
+	if id == "" {
+		id = uuid.New().String()
+	}
+
+	task := &models.Task{
+		ID:                 id,
+		Title:              strings.TrimSpace(matches[2]),
+		TestFile:           strings.TrimSpace(matches[3]),
+		TestFunc:           strings.TrimSpace(matches[4]),
+		AcceptanceCriteria: strings.TrimSpace(matches[5]),
+		Priority:           models.PriorityMedium,
+		Column:             column,
+		TestStatus:         models.TestStatusPending,
+	}
+
+	switch matches[1] {
+	case "x":
+		task.TestStatus = models.TestStatusPassed
+	case "-":
+		task.TestStatus = models.TestStatusFailed
+	}
+
+	return task
 }
 
 // Save writes all tasks to the markdown file
@@ -243,15 +386,33 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 		checkbox = "-"
 	}
 
-	// Check if task has a test associated
+	// Write task title line
+	fmt.Fprintf(file, "- [%s] %s\n", checkbox, task.Title)
+
+	// Write metadata as nested bullet points
+	fmt.Fprintf(file, "  - id: %s\n", task.ID)
+	fmt.Fprintf(file, "  - priority: %s\n", task.Priority)
+
 	if task.HasTest() {
-		// Format with test: - [ ] [priority] Title | test_file:TestFunc | AcceptanceCriteria <!-- id:uuid -->
-		fmt.Fprintf(file, "- [%s] [%s] %s | %s:%s | %s <!-- id:%s -->\n",
-			checkbox, task.Priority, task.Title, task.TestFile, task.TestFunc, task.AcceptanceCriteria, task.ID)
-	} else {
-		// Format without test: - [ ] [priority] Title | AcceptanceCriteria <!-- id:uuid -->
-		fmt.Fprintf(file, "- [%s] [%s] %s | %s <!-- id:%s -->\n",
-			checkbox, task.Priority, task.Title, task.AcceptanceCriteria, task.ID)
+		fmt.Fprintf(file, "  - test: %s:%s\n", task.TestFile, task.TestFunc)
+	}
+
+	if task.AcceptanceCriteria != "" {
+		fmt.Fprintf(file, "  - criteria: %s\n", task.AcceptanceCriteria)
+	}
+
+	// Write timestamp metadata
+	if !task.CreatedAt.IsZero() {
+		fmt.Fprintf(file, "  - created_at: %s\n", task.CreatedAt.Format("2006-01-02T15:04:05Z"))
+	}
+	if task.CreatedBy != "" {
+		fmt.Fprintf(file, "  - created_by: %s\n", task.CreatedBy)
+	}
+	if !task.UpdatedAt.IsZero() {
+		fmt.Fprintf(file, "  - updated_at: %s\n", task.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+	}
+	if task.UpdatedBy != "" {
+		fmt.Fprintf(file, "  - updated_by: %s\n", task.UpdatedBy)
 	}
 }
 
@@ -535,6 +696,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 		column = models.Column(sorted[0].Slug)
 	}
 
+	now := time.Now().UTC()
 	task := &models.Task{
 		ID:                 uuid.New().String(),
 		Title:              req.Title,
@@ -544,6 +706,10 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 		TestFunc:           testFunc,
 		Column:             column,
 		TestStatus:         models.TestStatusPending,
+		CreatedAt:          now,
+		CreatedBy:          req.Author,
+		UpdatedAt:          now,
+		UpdatedBy:          req.Author,
 	}
 
 	s.tasks[task.ID] = task
@@ -582,6 +748,12 @@ func (s *TaskStore) Update(id string, req models.UpdateTaskRequest) (*models.Tas
 	}
 	if req.Column != nil {
 		task.Column = *req.Column
+	}
+
+	// Update timestamp metadata
+	task.UpdatedAt = time.Now().UTC()
+	if req.Author != "" {
+		task.UpdatedBy = req.Author
 	}
 
 	// Save to file
