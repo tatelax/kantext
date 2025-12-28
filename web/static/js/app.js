@@ -13,6 +13,13 @@ let wsReconnectTimer = null;
 let wsReconnectDelay = 1000; // Start with 1 second
 let notificationContainer = null; // Notification container
 
+// Drag effect state
+let dragGhost = null;
+let lastMouseX = 0;
+let lastMouseY = 0;
+let mouseVelocityX = 0;
+let dragAnimationFrame = null;
+
 // DOM Elements
 const addTaskBtn = document.getElementById('add-task-btn');
 const taskModal = document.getElementById('task-modal');
@@ -443,12 +450,54 @@ function handleWebSocketMessage(msg) {
 
     switch (msg.type) {
         case 'tasks_updated':
-            // Reload both columns and tasks when file changes
+            // Fetch latest data and apply differential updates
+            // loadColumns must complete first (in case columns changed),
+            // then loadTasks renders tasks into the columns
+            // Both use differential rendering to avoid flashing
             loadColumns().then(() => loadTasks());
+            break;
+        case 'task_moved':
+            // Handle specific task move event if server sends it
+            if (msg.task_id && msg.column) {
+                handleRemoteTaskMove(msg.task_id, msg.column);
+            }
             break;
         default:
             console.log('Unknown message type:', msg.type);
     }
+}
+
+/**
+ * Handles a task move event from WebSocket (another client moved a task).
+ * Only updates if the local state differs from the remote state.
+ */
+function handleRemoteTaskMove(taskId, newColumn) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) {
+        // Task not in our local state, fetch all tasks
+        loadTasks();
+        return;
+    }
+
+    // If our local state already matches, no update needed
+    // (This happens when we initiated the move ourselves)
+    if (task.column === newColumn) {
+        return;
+    }
+
+    // Update local state
+    task.column = newColumn;
+
+    // Move the card in DOM
+    const card = document.querySelector(`.task-card[data-id="${taskId}"]`);
+    const targetList = document.querySelector(`.task-list[data-column="${newColumn}"]`);
+
+    if (card && targetList) {
+        targetList.appendChild(card);
+    }
+
+    // Update counts
+    updateTaskCounts();
 }
 
 function scheduleReconnect() {
@@ -549,11 +598,35 @@ async function handleCopyTaskId() {
 async function loadColumns() {
     try {
         const response = await fetch(`${API_BASE}/columns`);
-        columns = await response.json();
-        renderColumns();
+        const newColumns = await response.json();
+
+        // Check if columns have actually changed
+        if (!columnsEqual(columns, newColumns)) {
+            columns = newColumns;
+            renderColumns();
+            // After recreating columns, we must re-render tasks
+            // since renderColumns() clears the board
+            renderTasks();
+        }
     } catch (error) {
         console.error('Failed to load columns:', error);
     }
+}
+
+/**
+ * Compares two column arrays to determine if they are equivalent.
+ */
+function columnsEqual(oldColumns, newColumns) {
+    if (oldColumns.length !== newColumns.length) return false;
+
+    for (let i = 0; i < oldColumns.length; i++) {
+        if (oldColumns[i].slug !== newColumns[i].slug ||
+            oldColumns[i].name !== newColumns[i].name) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 async function createColumn(name) {
@@ -599,11 +672,45 @@ async function reorderColumns(slugs) {
 async function loadTasks() {
     try {
         const response = await fetch(`${API_BASE}/tasks`);
-        tasks = await response.json();
-        renderTasks();
+        const newTasks = await response.json();
+
+        // Check if tasks have actually changed to avoid unnecessary DOM operations
+        if (!tasksEqual(tasks, newTasks)) {
+            tasks = newTasks;
+            renderTasks();
+        }
     } catch (error) {
         console.error('Failed to load tasks:', error);
     }
+}
+
+/**
+ * Compares two task arrays to determine if they are equivalent.
+ * Returns true if the tasks are the same (no render needed).
+ */
+function tasksEqual(oldTasks, newTasks) {
+    if (oldTasks.length !== newTasks.length) return false;
+
+    // Create a map for quick lookup
+    const oldMap = new Map(oldTasks.map(t => [t.id, t]));
+
+    for (const newTask of newTasks) {
+        const oldTask = oldMap.get(newTask.id);
+        if (!oldTask) return false;
+
+        // Compare relevant fields
+        if (oldTask.title !== newTask.title ||
+            oldTask.column !== newTask.column ||
+            oldTask.priority !== newTask.priority ||
+            oldTask.test_status !== newTask.test_status ||
+            oldTask.test_file !== newTask.test_file ||
+            oldTask.test_func !== newTask.test_func ||
+            oldTask.acceptance_criteria !== newTask.acceptance_criteria) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 async function createTask(data) {
@@ -740,30 +847,77 @@ function createColumnElement(col) {
 // Task Render Functions
 // ============================================
 
+/**
+ * Renders tasks using differential DOM updates.
+ * Only creates, removes, or updates cards that have actually changed,
+ * avoiding the flash/flicker caused by destroying and recreating all cards.
+ */
 function renderTasks() {
-    // Clear all task lists
-    document.querySelectorAll('.task-list').forEach(list => {
-        list.innerHTML = '';
+    // Build a map of existing cards by task ID
+    const existingCards = new Map();
+    document.querySelectorAll('.task-card').forEach(card => {
+        existingCards.set(card.dataset.id, card);
+    });
+
+    // Track which task IDs are still present
+    const currentTaskIds = new Set(tasks.map(t => t.id));
+
+    // Remove cards for tasks that no longer exist
+    existingCards.forEach((card, taskId) => {
+        if (!currentTaskIds.has(taskId)) {
+            card.remove();
+        }
     });
 
     // Count tasks per column
     const counts = {};
     columns.forEach(col => counts[col.slug] = 0);
 
-    // Sort tasks by priority within each column
-    const sortedTasks = [...tasks].sort((a, b) => {
-        const priorityOrder = { high: 0, medium: 1, low: 2 };
-        return (priorityOrder[a.priority] || 1) - (priorityOrder[b.priority] || 1);
+    // Group tasks by column, preserving order from TASKS.md
+    const tasksByColumn = new Map();
+    columns.forEach(col => tasksByColumn.set(col.slug, []));
+    tasks.forEach(task => {
+        if (tasksByColumn.has(task.column)) {
+            tasksByColumn.get(task.column).push(task);
+        }
     });
 
-    // Render tasks
-    sortedTasks.forEach(task => {
-        const list = document.querySelector(`.task-list[data-column="${task.column}"]`);
-        if (list) {
-            const card = createTaskCard(task);
-            list.appendChild(card);
-            counts[task.column] = (counts[task.column] || 0) + 1;
-        }
+    // Process each column
+    tasksByColumn.forEach((columnTasks, columnSlug) => {
+        const list = document.querySelector(`.task-list[data-column="${columnSlug}"]`);
+        if (!list) return;
+
+        counts[columnSlug] = columnTasks.length;
+
+        // Process tasks in order
+        columnTasks.forEach((task, index) => {
+            let card = existingCards.get(task.id);
+
+            if (card) {
+                // Card exists - update it in place if data changed
+                updateTaskCard(card, task);
+
+                // Move to correct column if needed
+                if (card.parentElement !== list) {
+                    list.appendChild(card);
+                }
+            } else {
+                // Create new card
+                card = createTaskCard(task);
+                list.appendChild(card);
+            }
+
+            // Ensure correct order within column
+            const currentIndex = Array.from(list.children).indexOf(card);
+            if (currentIndex !== index) {
+                const referenceNode = list.children[index];
+                if (referenceNode) {
+                    list.insertBefore(card, referenceNode);
+                } else {
+                    list.appendChild(card);
+                }
+            }
+        });
     });
 
     // Update counts
@@ -771,6 +925,88 @@ function renderTasks() {
         const countEl = document.querySelector(`.task-count[data-column="${column}"]`);
         if (countEl) countEl.textContent = count;
     });
+}
+
+/**
+ * Updates an existing task card's content in place without recreating it.
+ * Only updates elements that have actually changed.
+ */
+function updateTaskCard(card, task) {
+    const hasTest = taskHasTest(task);
+    const priorityClass = `priority-${task.priority || 'medium'}`;
+
+    // Update priority class if changed
+    const expectedClasses = `task-card ${priorityClass}` + (hasTest ? '' : ' no-test');
+    if (card.className !== expectedClasses) {
+        card.className = expectedClasses;
+    }
+
+    // Update title if changed
+    const titleEl = card.querySelector('.task-title-clickable');
+    if (titleEl && titleEl.textContent !== task.title) {
+        titleEl.textContent = task.title;
+    }
+
+    // Handle test meta section
+    const existingMeta = card.querySelector('.task-meta');
+
+    if (hasTest) {
+        const testText = `${task.test_file}:${task.test_func}`;
+        const statusText = formatStatus(task.test_status);
+
+        if (existingMeta) {
+            // Update existing meta
+            const testEl = existingMeta.querySelector('.task-test');
+            if (testEl && testEl.textContent !== testText) {
+                testEl.textContent = testText;
+            }
+
+            const statusEl = existingMeta.querySelector('.task-status');
+            if (statusEl) {
+                if (statusEl.textContent !== statusText) {
+                    statusEl.textContent = statusText;
+                }
+                // Update status class
+                statusEl.className = `task-status ${task.test_status}`;
+            }
+        } else {
+            // Need to add meta section
+            const metaHtml = `<div class="task-meta">
+                <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
+                <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
+            </div>`;
+            card.insertAdjacentHTML('beforeend', metaHtml);
+        }
+
+        // Ensure play button exists
+        const actionsContainer = card.querySelector('.task-actions');
+        if (!actionsContainer) {
+            const header = card.querySelector('.task-header');
+            if (header) {
+                const actionsHtml = `<div class="task-actions">
+                    <button class="play-btn" title="Run Test">&#9658;</button>
+                </div>`;
+                header.insertAdjacentHTML('beforeend', actionsHtml);
+                // Re-attach event listener
+                const playBtn = header.querySelector('.play-btn');
+                if (playBtn) {
+                    playBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        handleRunTest(task.id, playBtn);
+                    });
+                }
+            }
+        }
+    } else {
+        // Remove meta and play button if task no longer has test
+        if (existingMeta) {
+            existingMeta.remove();
+        }
+        const actionsContainer = card.querySelector('.task-actions');
+        if (actionsContainer) {
+            actionsContainer.remove();
+        }
+    }
 }
 
 /**
@@ -1276,11 +1512,18 @@ async function handleRunTest(taskId, button) {
     button.classList.add('running');
     button.innerHTML = '&#8987;'; // Hourglass
 
-    // Find task and update local state
+    // Find task and update local state optimistically
     const task = tasks.find(t => t.id === taskId);
-    if (task) {
+    const card = document.querySelector(`.task-card[data-id="${taskId}"]`);
+
+    if (task && card) {
         task.test_status = 'running';
-        renderTasks();
+        // Update just this card's status badge instead of full render
+        const statusEl = card.querySelector('.task-status');
+        if (statusEl) {
+            statusEl.className = 'task-status running';
+            statusEl.textContent = formatStatus('running');
+        }
     }
 
     try {
@@ -1337,6 +1580,22 @@ function handleDragStart(e) {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', e.target.dataset.id);
 
+    // Create custom drag ghost with lift effect
+    createDragGhost(e.target, e.clientX, e.clientY);
+
+    // Hide native drag ghost by setting a transparent image
+    const transparentImg = new Image();
+    transparentImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    e.dataTransfer.setDragImage(transparentImg, 0, 0);
+
+    // Initialize mouse tracking
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    mouseVelocityX = 0;
+
+    // Start listening for mouse movement during drag
+    document.addEventListener('dragover', trackDragMovement);
+
     // Show the delete drop zone when dragging a task
     showDeleteDropZone();
 }
@@ -1345,6 +1604,12 @@ function handleDragEnd(e) {
     e.target.classList.remove('dragging');
     draggedTask = null;
 
+    // Stop tracking mouse movement
+    document.removeEventListener('dragover', trackDragMovement);
+
+    // Remove the custom drag ghost with settle animation
+    removeDragGhost(e.target);
+
     // Remove all drag-over states
     document.querySelectorAll('.task-list').forEach(list => {
         list.classList.remove('drag-over');
@@ -1352,6 +1617,95 @@ function handleDragEnd(e) {
 
     // Hide the delete drop zone
     hideDeleteDropZone();
+}
+
+/**
+ * Creates a custom drag ghost element that follows the mouse with physics-based effects.
+ * This replaces the native drag ghost for better visual control.
+ */
+function createDragGhost(sourceCard, startX, startY) {
+    // Clone the card for our custom ghost
+    dragGhost = sourceCard.cloneNode(true);
+    dragGhost.classList.remove('dragging');
+    dragGhost.classList.add('drag-ghost');
+
+    // Get the source card's dimensions and position
+    const rect = sourceCard.getBoundingClientRect();
+    dragGhost.style.width = rect.width + 'px';
+    dragGhost.style.left = startX - (rect.width / 2) + 'px';
+    dragGhost.style.top = startY - 20 + 'px';
+
+    // Add to document - the pickup animation handles the initial lift
+    document.body.appendChild(dragGhost);
+}
+
+/**
+ * Tracks mouse movement during drag and updates the ghost position/rotation.
+ */
+function trackDragMovement(e) {
+    if (!dragGhost) return;
+
+    // Prevent default to allow drop
+    e.preventDefault();
+
+    // Calculate velocity based on mouse movement
+    const deltaX = e.clientX - lastMouseX;
+    const deltaY = e.clientY - lastMouseY;
+
+    // Smooth velocity with exponential moving average
+    mouseVelocityX = mouseVelocityX * 0.7 + deltaX * 0.3;
+
+    // Update last position
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+
+    // Cancel any pending animation frame
+    if (dragAnimationFrame) {
+        cancelAnimationFrame(dragAnimationFrame);
+    }
+
+    // Use requestAnimationFrame for smooth updates
+    dragAnimationFrame = requestAnimationFrame(() => {
+        if (!dragGhost) return;
+
+        // Calculate rotation based on horizontal velocity
+        // Clamp rotation to ±8 degrees for subtle effect
+        const rotation = Math.max(-8, Math.min(8, mouseVelocityX * 0.5));
+
+        // Update ghost position (centered on cursor)
+        const ghostWidth = dragGhost.offsetWidth;
+        dragGhost.style.left = e.clientX - (ghostWidth / 2) + 'px';
+        dragGhost.style.top = e.clientY - 20 + 'px';
+
+        // Apply rotation and scale transform
+        dragGhost.style.transform = `scale(1.03) rotate(${rotation}deg)`;
+    });
+}
+
+/**
+ * Removes the drag ghost and plays a settle animation on the original card.
+ */
+function removeDragGhost(sourceCard) {
+    // Cancel any pending animation
+    if (dragAnimationFrame) {
+        cancelAnimationFrame(dragAnimationFrame);
+        dragAnimationFrame = null;
+    }
+
+    // Remove the ghost element
+    if (dragGhost) {
+        dragGhost.remove();
+        dragGhost = null;
+    }
+
+    // Play settle animation on the source card
+    sourceCard.classList.add('drag-settling');
+
+    // Remove the animation class after it completes
+    sourceCard.addEventListener('animationend', function onAnimEnd() {
+        sourceCard.classList.remove('drag-settling');
+        sourceCard.removeEventListener('animationend', onAnimEnd);
+    });
 }
 
 function handleDragOver(e) {
@@ -1378,12 +1732,67 @@ async function handleDrop(e) {
 
     const taskId = e.dataTransfer.getData('text/plain');
     const newColumn = e.currentTarget.dataset.column;
+    const targetList = e.currentTarget;
 
     if (!taskId || !newColumn) return;
 
+    // Find the card and task
+    const card = document.querySelector(`.task-card[data-id="${taskId}"]`);
+    const task = tasks.find(t => t.id === taskId);
+
+    if (!card || !task) return;
+
+    const oldColumn = task.column;
+
+    // If dropping in the same column, no change needed
+    if (oldColumn === newColumn) return;
+
+    // Optimistic update: immediately move the card in DOM
+    targetList.appendChild(card);
+
+    // Update local state immediately
+    task.column = newColumn;
+
+    // Update task counts immediately
+    updateTaskCounts();
+
     try {
         await updateTask(taskId, { column: newColumn });
+        // Success - state is already updated, nothing more to do
     } catch (error) {
         console.error('Failed to move task:', error);
+
+        // Rollback: move card back to original column
+        const originalList = document.querySelector(`.task-list[data-column="${oldColumn}"]`);
+        if (originalList && card) {
+            originalList.appendChild(card);
+        }
+
+        // Rollback local state
+        task.column = oldColumn;
+
+        // Update counts again after rollback
+        updateTaskCounts();
+
+        showNotification('Failed to move task. Please try again.', 'error');
     }
+}
+
+/**
+ * Updates the task count badges for all columns based on current local state.
+ */
+function updateTaskCounts() {
+    const counts = {};
+    columns.forEach(col => counts[col.slug] = 0);
+
+    tasks.forEach(task => {
+        if (counts.hasOwnProperty(task.column)) {
+            counts[task.column]++;
+        }
+    });
+
+    Object.entries(counts).forEach(([column, count]) => {
+        const countEl = document.querySelector(`.task-count[data-column="${column}"]`);
+        if (countEl) countEl.textContent = count;
+    });
 }

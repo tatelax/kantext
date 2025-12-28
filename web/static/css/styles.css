@@ -458,8 +458,74 @@ details[open] .details-arrow {
 }
 
 .task-card.dragging {
-    opacity: 0.5;
     cursor: grabbing;
+    /* Placeholder styling - shows where card came from */
+    opacity: 0.4;
+    background: var(--muted) !important;
+    border-style: dashed;
+    transform: scale(0.98);
+}
+
+/*
+ * Drag lift effect - creates illusion of card being picked up
+ * Uses a placeholder class since the actual dragged element becomes a ghost image
+ */
+.task-card.drag-lifted {
+    transform: scale(1.03) rotate(0deg);
+    box-shadow:
+        0 20px 40px -8px rgba(0, 0, 0, 0.35),
+        0 12px 24px -4px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+/* Custom drag ghost styling via drag image clone */
+.task-card.drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 10000;
+    transform-origin: center center;
+    /* Smooth rotation transitions, but position updates instantly */
+    transition: transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-shadow:
+        0 20px 40px -8px rgba(0, 0, 0, 0.35),
+        0 12px 24px -4px rgba(0, 0, 0, 0.2);
+    /* Initial pickup animation */
+    animation: cardPickup 0.15s ease-out forwards;
+}
+
+@keyframes cardPickup {
+    0% {
+        transform: scale(1) rotate(0deg);
+        box-shadow: 0 4px 20px -4px hsla(0, 0%, 0%, 0.4);
+    }
+    50% {
+        transform: scale(1.06) rotate(0deg);
+    }
+    100% {
+        transform: scale(1.03) rotate(0deg);
+        box-shadow:
+            0 20px 40px -8px rgba(0, 0, 0, 0.35),
+            0 12px 24px -4px rgba(0, 0, 0, 0.2);
+    }
+}
+
+/* Settling animation when card is dropped */
+.task-card.drag-settling {
+    animation: cardSettle 0.2s ease-out forwards;
+}
+
+@keyframes cardSettle {
+    0% {
+        transform: scale(1.03);
+        box-shadow:
+            0 20px 40px -8px rgba(0, 0, 0, 0.35),
+            0 12px 24px -4px rgba(0, 0, 0, 0.2);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 4px 20px -4px hsla(0, 0%, 0%, 0.4);
+    }
 }
 
 /* Tasks without tests - subtle diagonal stripe pattern */
