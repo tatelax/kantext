@@ -469,6 +469,41 @@ function setupEventListeners() {
     if (autoGenerateCheckbox) {
         autoGenerateCheckbox.addEventListener('change', toggleAutoGenerate);
     }
+
+    // Generate test file checkbox toggle
+    if (generateTestFileCheckbox) {
+        generateTestFileCheckbox.addEventListener('change', toggleAdvancedSection);
+    }
+
+    // Copy task ID button
+    const copyTaskIdBtn = document.getElementById('copy-task-id-btn');
+    if (copyTaskIdBtn) {
+        copyTaskIdBtn.addEventListener('click', handleCopyTaskId);
+    }
+}
+
+/**
+ * Handle copying task ID to clipboard
+ */
+async function handleCopyTaskId() {
+    const modalTaskIdEl = document.getElementById('modal-task-id');
+    const copyBtn = document.getElementById('copy-task-id-btn');
+
+    if (!modalTaskIdEl || !modalTaskIdEl.textContent) return;
+
+    const success = await copyToClipboard(modalTaskIdEl.textContent);
+
+    if (success) {
+        // Show success state briefly
+        copyBtn.classList.add('copied');
+        showNotification('Task ID copied to clipboard!', 'success');
+
+        setTimeout(() => {
+            copyBtn.classList.remove('copied');
+        }, 2000);
+    } else {
+        showNotification('Failed to copy task ID', 'error');
+    }
 }
 
 // ============================================
@@ -847,6 +882,25 @@ function toggleAutoGenerate() {
     }
 }
 
+/**
+ * Toggle advanced section based on generate test file checkbox
+ */
+function toggleAdvancedSection() {
+    if (!advancedDetails) return;
+
+    const isEnabled = generateTestFileCheckbox && generateTestFileCheckbox.checked;
+
+    if (isEnabled) {
+        advancedDetails.classList.remove('advanced-disabled');
+        advancedDetails.removeAttribute('inert');
+    } else {
+        advancedDetails.classList.add('advanced-disabled');
+        advancedDetails.setAttribute('inert', '');
+        // Collapse the section when disabled
+        advancedDetails.removeAttribute('open');
+    }
+}
+
 // ============================================
 // Column Handlers
 // ============================================
@@ -996,12 +1050,13 @@ function openTaskModal(task = null) {
     }
 
     const modalTaskIdEl = document.getElementById('modal-task-id');
+    const modalTaskIdWrapper = document.getElementById('modal-task-id-wrapper');
 
     if (task) {
         modalTitle.textContent = 'Edit Task';
-        if (modalTaskIdEl) {
+        if (modalTaskIdEl && modalTaskIdWrapper) {
             modalTaskIdEl.textContent = task.id;
-            modalTaskIdEl.classList.remove('hidden');
+            modalTaskIdWrapper.classList.remove('hidden');
         }
         taskIdInput.value = task.id;
         titleInput.value = task.title;
@@ -1037,6 +1092,12 @@ function openTaskModal(task = null) {
             generateTestFileCheckbox.closest('.flex').style.display = 'none';
         }
 
+        // Ensure advanced section is enabled for existing tasks (checkbox is hidden)
+        if (advancedDetails) {
+            advancedDetails.classList.remove('advanced-disabled');
+            advancedDetails.removeAttribute('inert');
+        }
+
         // Show delete button for existing tasks
         if (modalDeleteBtn) {
             modalDeleteBtn.classList.remove('hidden');
@@ -1061,9 +1122,11 @@ function openTaskModal(task = null) {
         }
     } else {
         modalTitle.textContent = 'New Task';
+        if (modalTaskIdWrapper) {
+            modalTaskIdWrapper.classList.add('hidden');
+        }
         if (modalTaskIdEl) {
             modalTaskIdEl.textContent = '';
-            modalTaskIdEl.classList.add('hidden');
         }
         taskForm.reset();
         taskIdInput.value = '';
@@ -1081,6 +1144,9 @@ function openTaskModal(task = null) {
             generateTestFileCheckbox.closest('.flex').style.display = 'flex';
             generateTestFileCheckbox.checked = true;
         }
+
+        // Enable advanced section for new tasks (since generate test file is checked)
+        toggleAdvancedSection();
 
         // Hide delete button for new tasks
         if (modalDeleteBtn) {

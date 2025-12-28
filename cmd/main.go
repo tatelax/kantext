@@ -62,7 +62,7 @@ func main() {
 	go wsHub.Run()
 
 	// Initialize services
-	testGen := services.NewTestGenerator(testsDir)             // Uses absolute path to create files
+	testGen := services.NewTestGenerator(testsDir) // Uses absolute path to create files
 	taskStore := services.NewTaskStore(tasksFile, testGen)
 	testRunner := services.NewTestRunner(testsRelative, workDir) // Uses relative path for go test command
 
@@ -150,14 +150,14 @@ func main() {
 	// Start server
 	fmt.Printf(`
 ╔════════════════════════════════════════════════════════════╗
-║                          Kantext                           ║
+║                     Kantext Web Server                     ║
 ║    Test-Driven Development meets Visual Task Management    ║
 ╠════════════════════════════════════════════════════════════╣
-║  * Server running at: http://localhost:%s                  ║
-║  * WebSocket endpoint: ws://localhost:%s/ws                ║             
-║  * Working directory: %s                                   ║
-║  * Tasks file: %s                                          ║
-║  * Tests directory: %s                                     ║
+║  * Server running at: http://localhost:%s                ║
+║  * WebSocket endpoint: ws://localhost:%s/ws              ║             
+║  * Working directory: %s                 ║
+║  * Tasks file: %s               ║
+║  * Tests directory: %s             ║
 ║  * Real-time updates: ENABLED                              ║
 ╚════════════════════════════════════════════════════════════╝
 `, *port, *port, workDir, tasksFile, testsDir)

@@ -302,9 +302,47 @@ body {
     background-color: var(--muted);
 }
 
+/* Copy Button */
+.copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    color: var(--muted-foreground);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.copy-btn:hover {
+    color: var(--foreground);
+    background-color: var(--muted);
+}
+
+.copy-btn:active {
+    transform: scale(0.95);
+}
+
+.copy-btn.copied {
+    color: var(--success);
+}
+
 /* Details/Accordion Arrow Animation */
 details[open] .details-arrow {
     transform: rotate(90deg);
+}
+
+/* Advanced Section Disabled State */
+.advanced-disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+.advanced-disabled summary {
+    cursor: not-allowed;
 }
 
 /* ============================================
@@ -338,7 +376,7 @@ details[open] .details-arrow {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--muted-foreground);
+    color: var(--foreground);
 }
 
 /* Task Count Badge */
@@ -353,7 +391,7 @@ details[open] .details-arrow {
     padding: 0 0.5rem;
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--muted-foreground);
+    color: var(--foreground);
 }
 
 /* Task List Container */
@@ -380,7 +418,7 @@ details[open] .details-arrow {
     background-color: var(--background);
     border: 1px solid var(--border);
     border-radius: 0.5rem;
-    padding: 0.75rem;
+    padding: 1.25rem;
     cursor: grab;
     transition: all 0.2s ease;
     overflow: hidden;
@@ -683,7 +721,7 @@ details[open] .details-arrow {
     position: fixed;
     bottom: 1rem;
     right: 1rem;
-    z-index: 1000;
+    z-index: 2147483647; /* Max z-index to stay above dialogs */
     display: flex;
     flex-direction: column-reverse;
     gap: 0.5rem;
@@ -818,6 +856,77 @@ input[type="checkbox"]:checked::after {
 input[type="checkbox"]:focus {
     outline: none;
     box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+/* ============================================
+   Toggle Switch Component
+   ============================================ */
+
+.toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-track {
+    position: relative;
+    width: 2.5rem;
+    height: 1.375rem;
+    background-color: var(--muted);
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1rem;
+    height: 1rem;
+    background-color: var(--foreground);
+    border-radius: 9999px;
+    transition: transform 0.2s ease, background-color 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-switch input:checked + .toggle-track {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+.toggle-switch input:checked + .toggle-track::after {
+    transform: translateX(1.125rem);
+    background-color: white;
+}
+
+.toggle-switch input:focus-visible + .toggle-track {
+    box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
+}
+
+.toggle-switch:hover .toggle-track {
+    border-color: var(--primary);
+}
+
+.toggle-label {
+    font-size: 0.875rem;
+    color: var(--foreground);
+    user-select: none;
+}
+
+.toggle-hint {
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
 }
 
 /* ============================================
