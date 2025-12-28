@@ -46,6 +46,7 @@ const panelCancelBtn = document.getElementById('panel-cancel-btn');
 const panelDeleteBtn = document.getElementById('panel-delete-btn');
 const panelSaveBtn = document.getElementById('panel-save-btn');
 let currentPanelTask = null; // Track the task being edited in the panel
+let panelOriginalValues = null; // Track original form values for change detection
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -339,15 +340,23 @@ function showNotification(message, type = 'info', duration = 5000) {
 
     notificationContainer.appendChild(notification);
 
-    // Auto-remove after duration
-    setTimeout(() => {
+    // Function to dismiss the notification
+    const dismiss = () => {
+        if (notification.classList.contains('fade-out')) return; // Already dismissing
+        clearTimeout(autoRemoveTimeout);
         notification.classList.add('fade-out');
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.remove();
             }
         }, 300); // Wait for fade-out animation
-    }, duration);
+    };
+
+    // Click to dismiss
+    notification.addEventListener('click', dismiss);
+
+    // Auto-remove after duration
+    const autoRemoveTimeout = setTimeout(dismiss, duration);
 
     return notification;
 }
@@ -1057,6 +1066,25 @@ function updateTaskCard(card, task) {
         titleEl.textContent = task.title;
     }
 
+    // Handle criteria icon
+    const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
+    const existingCriteriaIcon = card.querySelector('.task-criteria-icon');
+    const taskHeader = card.querySelector('.task-header');
+
+    if (hasCriteria && !existingCriteriaIcon && taskHeader) {
+        // Add criteria icon
+        const iconHtml = `<span class="task-criteria-icon" title="Has acceptance criteria">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+                <path d="m15 5 4 4"></path>
+            </svg>
+        </span>`;
+        taskHeader.insertAdjacentHTML('afterbegin', iconHtml);
+    } else if (!hasCriteria && existingCriteriaIcon) {
+        // Remove criteria icon
+        existingCriteriaIcon.remove();
+    }
+
     // Handle test meta section
     const existingMeta = card.querySelector('.task-meta');
 
@@ -1150,9 +1178,20 @@ function createTaskCard(task) {
            </div>`
         : '';
 
+    // Build criteria icon - show pencil if task has acceptance criteria
+    const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
+    const criteriaIconHtml = hasCriteria
+        ? `<span class="task-criteria-icon" title="Has acceptance criteria">
+               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                   <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
+                   <path d="m15 5 4 4"></path>
+               </svg>
+           </span>`
+        : '';
+
     card.innerHTML = `
         <div class="task-header">
-            <span class="task-title task-title-clickable" title="Click to copy task ID">${escapeHtml(task.title)}</span>
+            ${criteriaIconHtml}<span class="task-title task-title-clickable" title="Click to copy task ID">${escapeHtml(task.title)}</span>
             ${actionsHtml}
         </div>
         ${metaHtml}
@@ -1573,7 +1612,10 @@ function hideTaskMetadata() {
 function openTaskPanel(task) {
     if (!taskPanel || !task) return;
 
-    currentPanelTask = task;
+    // Always fetch the latest task data from the tasks array
+    const freshTask = tasks.find(t => t.id === task.id) || task;
+    currentPanelTask = freshTask;
+    task = freshTask;
 
     // Populate form fields
     const idInput = document.getElementById('panel-task-id-input');
@@ -1608,6 +1650,16 @@ function openTaskPanel(task) {
     // Update metadata display
     updatePanelMetadata(task);
 
+    // Store original values for change detection
+    panelOriginalValues = {
+        title: task.title || '',
+        acceptance_criteria: task.acceptance_criteria || '',
+        priority: task.priority || 'medium'
+    };
+
+    // Disable save button initially (no changes yet)
+    updatePanelSaveButton();
+
     // Show panel with animation
     taskPanelOverlay?.classList.add('visible');
     taskPanel.classList.add('open');
@@ -1625,12 +1677,57 @@ function closeTaskPanel() {
     taskPanel.classList.remove('open');
     taskPanelOverlay?.classList.remove('visible');
     currentPanelTask = null;
+    panelOriginalValues = null;
 
     // Reset form and title edit mode after animation
     setTimeout(() => {
         panelTaskForm?.reset();
         hideTitleEditMode();
     }, 300);
+}
+
+/**
+ * Gets the current form values from the panel
+ */
+function getPanelFormValues() {
+    const titleEl = document.getElementById('panel-title');
+    const criteriaInput = document.getElementById('panel-criteria-input');
+    const priorityRadio = panelTaskForm?.querySelector('input[name="panel-priority"]:checked');
+
+    return {
+        title: titleEl?.textContent || '',
+        acceptance_criteria: criteriaInput?.value || '',
+        priority: priorityRadio?.value || 'medium'
+    };
+}
+
+/**
+ * Checks if the panel form has unsaved changes
+ */
+function panelHasChanges() {
+    if (!panelOriginalValues) return false;
+
+    const current = getPanelFormValues();
+
+    return current.title !== panelOriginalValues.title ||
+           current.acceptance_criteria !== panelOriginalValues.acceptance_criteria ||
+           current.priority !== panelOriginalValues.priority;
+}
+
+/**
+ * Updates the save button state based on whether there are changes
+ */
+function updatePanelSaveButton() {
+    if (!panelSaveBtn) return;
+
+    const hasChanges = panelHasChanges();
+    panelSaveBtn.disabled = !hasChanges;
+
+    if (hasChanges) {
+        panelSaveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+        panelSaveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
 }
 
 /**
@@ -1692,14 +1789,22 @@ async function saveTitleEdit() {
             acceptance_criteria: formData.get('acceptance_criteria'),
             priority: formData.get('panel-priority')
         });
-        currentPanelTask.title = newTitle;
         showNotification('Title updated', 'success');
+        // Reload tasks - this will update currentPanelTask reference via renderTasks
         await loadTasks();
+        // Update currentPanelTask reference to the fresh task object
+        currentPanelTask = tasks.find(t => t.id === currentPanelTask.id) || currentPanelTask;
+        // Update original values to reflect the saved state
+        if (panelOriginalValues) {
+            panelOriginalValues.title = newTitle;
+        }
+        updatePanelSaveButton();
     } catch (error) {
         console.error('Failed to update title:', error);
         showNotification('Failed to update title', 'error');
         // Revert title display
         if (titleEl) titleEl.textContent = currentPanelTask.title || '';
+        updatePanelSaveButton();
     }
 }
 
@@ -1866,6 +1971,15 @@ function initTaskPanel() {
                 closeTaskPanel();
             }
         }
+    });
+
+    // Change detection for form inputs
+    const criteriaInput = document.getElementById('panel-criteria-input');
+    const priorityRadios = panelTaskForm?.querySelectorAll('input[name="panel-priority"]');
+
+    criteriaInput?.addEventListener('input', updatePanelSaveButton);
+    priorityRadios?.forEach(radio => {
+        radio.addEventListener('change', updatePanelSaveButton);
     });
 }
 
