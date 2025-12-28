@@ -86,7 +86,7 @@
     </main>
 
     <!-- Add/Edit Task Dialog -->
-    <dialog id="task-modal" class="dialog-base" onclick="if (event.target === this) this.close()">
+    <dialog id="task-modal" class="dialog-base">
         <div class="dialog-content">
             <header class="mb-6">
                 <h2 id="modal-title" class="text-xl font-semibold tracking-tight text-foreground">New Task</h2>
@@ -190,7 +190,7 @@
     </dialog>
 
     <!-- Test Output Dialog -->
-    <dialog id="output-modal" class="dialog-base" onclick="if (event.target === this) this.close()">
+    <dialog id="output-modal" class="dialog-base">
         <div class="dialog-content dialog-lg">
             <header class="mb-4">
                 <h2 id="output-title" class="text-xl font-semibold tracking-tight text-foreground">Test Output</h2>
@@ -214,7 +214,7 @@
     </dialog>
 
     <!-- Custom Confirm/Prompt Dialog -->
-    <dialog id="custom-dialog" class="dialog-base" onclick="if (event.target === this) handleCustomDialogCancel()">
+    <dialog id="custom-dialog" class="dialog-base">
         <div class="dialog-content dialog-sm">
             <header class="mb-4">
                 <h2 id="custom-dialog-title" class="text-lg font-semibold tracking-tight text-foreground">Confirm</h2>
@@ -239,7 +239,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=17"></script>
+    <script src="/static/js/app.js?v=18"></script>
 </body>
 </html>
 {{end}}

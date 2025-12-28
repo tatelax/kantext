@@ -32,11 +32,47 @@ document.addEventListener('DOMContentLoaded', () => {
     initNotificationSystem();
     initThemeToggle();
     initDeleteDropZone();
+    initDialogBackdropClose();
     loadColumns().then(() => loadTasks());
     setupEventListeners();
     console.log('[Init] Setting up WebSocket connection...');
     connectWebSocket();
 });
+
+// ============================================
+// Dialog Backdrop Close
+// ============================================
+
+/**
+ * Initialize dialog backdrop click handling.
+ * Only closes dialog if both mousedown and click started on the backdrop,
+ * preventing accidental closes when dragging from inside to outside.
+ */
+function initDialogBackdropClose() {
+    const dialogs = document.querySelectorAll('.dialog-base');
+
+    dialogs.forEach(dialog => {
+        let mouseDownOnBackdrop = false;
+
+        dialog.addEventListener('mousedown', (e) => {
+            // Check if mousedown is directly on the dialog backdrop (not its children)
+            mouseDownOnBackdrop = (e.target === dialog);
+        });
+
+        dialog.addEventListener('click', (e) => {
+            // Only close if both mousedown and click were on the backdrop
+            if (mouseDownOnBackdrop && e.target === dialog) {
+                // Special handling for custom-dialog which uses handleCustomDialogCancel
+                if (dialog.id === 'custom-dialog') {
+                    handleCustomDialogCancel();
+                } else {
+                    dialog.close();
+                }
+            }
+            mouseDownOnBackdrop = false;
+        });
+    });
+}
 
 // ============================================
 // Theme Toggle
