@@ -402,6 +402,7 @@ details[open] .details-arrow {
     font-size: 0.75rem;
     font-weight: 500;
     color: var(--foreground);
+    margin-left: 0.5rem;
 }
 
 /* Task List Container */
@@ -420,6 +421,9 @@ details[open] .details-arrow {
 
 .task-list.drag-over {
     background-color: hsla(217.2, 91.2%, 59.8%, 0.05);
+    outline: 2px dashed var(--primary);
+    outline-offset: -2px;
+    border-radius: 0.5rem;
 }
 
 /* Drop indicator - shows where card will be inserted */
