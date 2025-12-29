@@ -1075,8 +1075,12 @@ function updateTaskCard(card, task) {
         // Add criteria icon
         const iconHtml = `<span class="task-criteria-icon" title="Has acceptance criteria">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
-                <path d="m15 5 4 4"></path>
+                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                <path d="M12 11h4"></path>
+                <path d="M12 16h4"></path>
+                <path d="M8 11h.01"></path>
+                <path d="M8 16h.01"></path>
             </svg>
         </span>`;
         taskHeader.insertAdjacentHTML('afterbegin', iconHtml);
@@ -1178,13 +1182,17 @@ function createTaskCard(task) {
            </div>`
         : '';
 
-    // Build criteria icon - show pencil if task has acceptance criteria
+    // Build criteria icon - show clipboard if task has acceptance criteria
     const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
     const criteriaIconHtml = hasCriteria
         ? `<span class="task-criteria-icon" title="Has acceptance criteria">
                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                   <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path>
-                   <path d="m15 5 4 4"></path>
+                   <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                   <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                   <path d="M12 11h4"></path>
+                   <path d="M12 16h4"></path>
+                   <path d="M8 11h.01"></path>
+                   <path d="M8 16h.01"></path>
                </svg>
            </span>`
         : '';
@@ -1641,10 +1649,20 @@ function openTaskPanel(task) {
     const priorityRadio = panelTaskForm?.querySelector(`input[name="panel-priority"][value="${task.priority || 'medium'}"]`);
     if (priorityRadio) priorityRadio.checked = true;
 
-    // Expand test config if task has test
-    const testDetails = document.getElementById('panel-test-details');
-    if (testDetails && task.test_file && task.test_func) {
-        testDetails.setAttribute('open', '');
+    // Ensure task details section is open
+    const detailsSection = document.getElementById('panel-details-section');
+    if (detailsSection) {
+        detailsSection.setAttribute('open', '');
+    }
+
+    // Expand advanced section only if task has test configuration
+    const advancedSection = document.getElementById('panel-advanced-section');
+    if (advancedSection) {
+        if (task.test_file && task.test_func) {
+            advancedSection.setAttribute('open', '');
+        } else {
+            advancedSection.removeAttribute('open');
+        }
     }
 
     // Update metadata display
@@ -1654,7 +1672,9 @@ function openTaskPanel(task) {
     panelOriginalValues = {
         title: task.title || '',
         acceptance_criteria: task.acceptance_criteria || '',
-        priority: task.priority || 'medium'
+        priority: task.priority || 'medium',
+        test_file: task.test_file || '',
+        test_func: task.test_func || ''
     };
 
     // Disable save button initially (no changes yet)
@@ -1693,11 +1713,15 @@ function getPanelFormValues() {
     const titleEl = document.getElementById('panel-title');
     const criteriaInput = document.getElementById('panel-criteria-input');
     const priorityRadio = panelTaskForm?.querySelector('input[name="panel-priority"]:checked');
+    const testFileInput = document.getElementById('panel-test-file');
+    const testFuncInput = document.getElementById('panel-test-func');
 
     return {
         title: titleEl?.textContent || '',
         acceptance_criteria: criteriaInput?.value || '',
-        priority: priorityRadio?.value || 'medium'
+        priority: priorityRadio?.value || 'medium',
+        test_file: testFileInput?.value || '',
+        test_func: testFuncInput?.value || ''
     };
 }
 
@@ -1711,7 +1735,9 @@ function panelHasChanges() {
 
     return current.title !== panelOriginalValues.title ||
            current.acceptance_criteria !== panelOriginalValues.acceptance_criteria ||
-           current.priority !== panelOriginalValues.priority;
+           current.priority !== panelOriginalValues.priority ||
+           current.test_file !== panelOriginalValues.test_file ||
+           current.test_func !== panelOriginalValues.test_func;
 }
 
 /**
@@ -1871,7 +1897,9 @@ async function handlePanelFormSubmit(e) {
     const data = {
         title: title,
         acceptance_criteria: formData.get('acceptance_criteria'),
-        priority: formData.get('panel-priority')
+        priority: formData.get('panel-priority'),
+        test_file: formData.get('test_file'),
+        test_func: formData.get('test_func')
     };
 
     try {
@@ -1976,11 +2004,15 @@ function initTaskPanel() {
     // Change detection for form inputs
     const criteriaInput = document.getElementById('panel-criteria-input');
     const priorityRadios = panelTaskForm?.querySelectorAll('input[name="panel-priority"]');
+    const testFileInput = document.getElementById('panel-test-file');
+    const testFuncInput = document.getElementById('panel-test-func');
 
     criteriaInput?.addEventListener('input', updatePanelSaveButton);
     priorityRadios?.forEach(radio => {
         radio.addEventListener('change', updatePanelSaveButton);
     });
+    testFileInput?.addEventListener('input', updatePanelSaveButton);
+    testFuncInput?.addEventListener('input', updatePanelSaveButton);
 }
 
 // ============================================

@@ -1,15 +1,17 @@
 # Kantext
 
-A TDD-focused Kanban board that tracks tasks alongside their tests. Tasks automatically move to "Done" when their tests pass.
+A TDD-focused Kanban board that tracks tasks alongside their tests, stores everything in a Markdown file, and provides an MCP server for direct LLM access.
+
+![images/board.png](images/board.png)
 
 ## Features
 
+- MCP server for AI assistant integration
+- Tasks stored in a simple Markdown file
 - Visual Kanban board with drag-and-drop
 - Auto-generates Go test files for new tasks
 - Runs tests and tracks pass/fail status
 - Real-time updates via WebSocket
-- MCP server for AI assistant integration
-- Tasks stored in a simple Markdown file
 
 ## Quick Start
 
@@ -76,22 +78,6 @@ Available tools:
 - `get_task` - Get task details
 - `delete_task` - Delete a task
 
-## Task Format
-
-Tasks are stored in Markdown:
-
-```markdown
-# Kantext Tasks
-
-## Todo
-- [ ] [high] User Login | user_login_test.go:TestUserLogin | User can log in with valid credentials <!-- id:abc-123 -->
-
-## In Progress
-
-## Done
-- [x] [medium] Health Check | health_check_test.go:TestHealthCheck | API returns 200 <!-- id:def-456 -->
-```
-
 ## Build
 
 ```bash
@@ -99,6 +85,7 @@ make build        # Build web server
 make build-mcp    # Build MCP server
 make build-all    # Build both
 make clean        # Remove binaries
+make run          # Run web server
 ```
 
 ## License

@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=51">
+    <link rel="stylesheet" href="/static/css/styles.css?v=52">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -161,45 +161,62 @@
             <form id="panel-task-form" class="task-panel-form">
                 <input type="hidden" id="panel-task-id-input" name="id">
 
-                <div class="space-y-2">
-                    <label for="panel-criteria-input" class="text-sm font-medium text-foreground">Acceptance Criteria</label>
-                    <textarea id="panel-criteria-input" name="acceptance_criteria" class="input-field min-h-[180px] resize-y" placeholder="What should the test verify? When is this task complete?"></textarea>
-                </div>
-
-                <div class="space-y-2">
-                    <span class="text-sm font-medium text-foreground">Priority</span>
-                    <div class="flex gap-4 mt-2">
-                        <label class="priority-option">
-                            <input type="radio" name="panel-priority" value="low" class="sr-only peer">
-                            <span class="priority-badge priority-low peer-checked:ring-2 peer-checked:ring-primary peer-checked:ring-offset-2 peer-checked:ring-offset-background">Low</span>
-                        </label>
-                        <label class="priority-option">
-                            <input type="radio" name="panel-priority" value="medium" class="sr-only peer" checked>
-                            <span class="priority-badge priority-medium peer-checked:ring-2 peer-checked:ring-warning peer-checked:ring-offset-2 peer-checked:ring-offset-background">Medium</span>
-                        </label>
-                        <label class="priority-option">
-                            <input type="radio" name="panel-priority" value="high" class="sr-only peer">
-                            <span class="priority-badge priority-high peer-checked:ring-2 peer-checked:ring-destructive peer-checked:ring-offset-2 peer-checked:ring-offset-background">High</span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Test Configuration -->
-                <details id="panel-test-details" class="border-t border-border pt-4 mt-4">
-                    <summary class="flex items-center gap-2 cursor-pointer text-muted-foreground text-sm hover:text-foreground transition-colors">
-                        <svg class="w-3 h-3 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <!-- Task Details Section -->
+                <details id="panel-details-section" class="panel-section" open>
+                    <summary class="panel-section-header">
+                        <svg class="w-4 h-4 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
-                        Test Configuration
+                        <span>Task Details</span>
                     </summary>
-                    <div class="pt-4 grid grid-cols-2 gap-4">
+                    <div class="panel-section-content">
                         <div class="space-y-2">
-                            <label for="panel-test-file" class="text-sm font-medium text-foreground">Test File</label>
-                            <input type="text" id="panel-test-file" name="test_file" class="input-field" placeholder="e.g., auth_test.go">
+                            <label for="panel-criteria-input" class="text-sm font-medium text-foreground">Acceptance Criteria</label>
+                            <textarea id="panel-criteria-input" name="acceptance_criteria" class="input-field min-h-[180px] resize-y" placeholder="What should the test verify? When is this task complete?"></textarea>
                         </div>
+
                         <div class="space-y-2">
-                            <label for="panel-test-func" class="text-sm font-medium text-foreground">Test Function</label>
-                            <input type="text" id="panel-test-func" name="test_func" class="input-field" placeholder="e.g., TestLogin">
+                            <span class="text-sm font-medium text-foreground">Priority</span>
+                            <div class="flex gap-4 mt-2">
+                                <label class="priority-option">
+                                    <input type="radio" name="panel-priority" value="low" class="sr-only peer">
+                                    <span class="priority-badge priority-low peer-checked:ring-2 peer-checked:ring-primary peer-checked:ring-offset-2 peer-checked:ring-offset-background">Low</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="panel-priority" value="medium" class="sr-only peer" checked>
+                                    <span class="priority-badge priority-medium peer-checked:ring-2 peer-checked:ring-warning peer-checked:ring-offset-2 peer-checked:ring-offset-background">Medium</span>
+                                </label>
+                                <label class="priority-option">
+                                    <input type="radio" name="panel-priority" value="high" class="sr-only peer">
+                                    <span class="priority-badge priority-high peer-checked:ring-2 peer-checked:ring-destructive peer-checked:ring-offset-2 peer-checked:ring-offset-background">High</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Advanced Section -->
+                <details id="panel-advanced-section" class="panel-section">
+                    <summary class="panel-section-header">
+                        <svg class="w-4 h-4 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                        <span>Advanced</span>
+                    </summary>
+                    <div class="panel-section-content">
+                        <div class="space-y-2 mb-4">
+                            <span class="text-sm font-medium text-foreground">Test Configuration</span>
+                            <p class="text-xs text-muted-foreground">Link this task to a specific test file and function.</p>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-2">
+                                <label for="panel-test-file" class="text-sm font-medium text-foreground">Test File</label>
+                                <input type="text" id="panel-test-file" name="test_file" class="input-field" placeholder="e.g., auth_test.go">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="panel-test-func" class="text-sm font-medium text-foreground">Test Function</label>
+                                <input type="text" id="panel-test-func" name="test_func" class="input-field" placeholder="e.g., TestLogin">
+                            </div>
                         </div>
                     </div>
                 </details>
@@ -356,7 +373,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=34"></script>
+    <script src="/static/js/app.js?v=35"></script>
 </body>
 </html>
 {{end}}
