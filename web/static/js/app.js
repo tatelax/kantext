@@ -1121,6 +1121,11 @@ function updateTaskCard(card, task) {
         titleEl.textContent = task.title;
     }
 
+    // Update strikethrough for done column
+    if (titleEl) {
+        titleEl.classList.toggle('task-done', task.column === 'done');
+    }
+
     // Handle criteria icon
     const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
     const existingCriteriaIcon = card.querySelector('.task-criteria-icon');
@@ -1454,7 +1459,7 @@ function createTaskCard(task) {
 
     card.innerHTML = `
         <div class="task-header">
-            ${criteriaIconHtml}<span class="task-title task-title-clickable" title="Click to copy task ID">${escapeHtml(task.title)}</span>
+            ${criteriaIconHtml}<span class="task-title task-title-clickable${task.column === 'done' ? ' task-done' : ''}" title="Click to copy task ID">${escapeHtml(task.title)}</span>
             ${actionsHtml}
         </div>
         ${metaHtml}
@@ -2546,6 +2551,12 @@ async function handleDrop(e) {
 
     // Update local state
     task.column = newColumn;
+
+    // Update strikethrough based on new column
+    const titleEl = card.querySelector('.task-title-clickable');
+    if (titleEl) {
+        titleEl.classList.toggle('task-done', newColumn === 'done');
+    }
 
     // Reorder the tasks array to match the new visual order
     reorderLocalTasks(taskId, newColumn, dropIndex);

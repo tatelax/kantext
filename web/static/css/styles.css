@@ -1171,6 +1171,11 @@ html.dark .task-card.no-test {
     background-color: hsla(217.2, 91.2%, 59.8%, 0.1);
 }
 
+.task-title.task-done {
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
 /* ============================================
    Checkbox Styles
    ============================================ */

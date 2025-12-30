@@ -8,6 +8,6 @@ X Make task view wider
 X Lower opacity on blockers behind task view and dialog boxes
 * Add red exclamation mark to the left of task titles (or left of the icon indicating the task has acceptance criteria) to stale tasks. Define what stale means in config.json. By default it will be tasks that have not been updated in more than 1 week
 * Add config menu to modify config.json from UI
-* Add strikethru on tasks in done column
+X Add strikethru on tasks in done column
 * If a task fails to pass ask the user if they want to move it to in progress
 * Fix height of columns to match padding between bottom of screen and left of screen
