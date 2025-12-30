@@ -38,6 +38,9 @@ const taskModal = document.getElementById('task-modal');
 const outputModal = document.getElementById('output-modal');
 const taskForm = document.getElementById('task-form');
 const testOutput = document.getElementById('test-output');
+const outputMovePrompt = document.getElementById('output-move-prompt');
+const outputFailedCount = document.getElementById('output-failed-count');
+const outputMoveBtn = document.getElementById('output-move-btn');
 const board = document.getElementById('board');
 const requiresTestCheckbox = document.getElementById('requires_test');
 const panelRequiresTestCheckbox = document.getElementById('panel-requires-test');
@@ -699,6 +702,11 @@ function setupEventListeners() {
     if (copyTaskIdBtn) {
         copyTaskIdBtn.addEventListener('click', handleCopyTaskId);
     }
+
+    // Output modal Accept button (move task from Done to In Progress)
+    if (outputMoveBtn) {
+        outputMoveBtn.addEventListener('click', handleOutputMoveToInProgress);
+    }
 }
 
 /**
@@ -722,6 +730,31 @@ async function handleCopyTaskId() {
         }, 2000);
     } else {
         showNotification('Failed to copy task ID', 'error');
+    }
+}
+
+/**
+ * Handle Accept button click in output modal - moves task from Done to In Progress
+ */
+async function handleOutputMoveToInProgress() {
+    if (!outputModalTask) return;
+
+    const taskId = outputModalTask.id;
+
+    try {
+        // Move task to in_progress column
+        await updateTask(taskId, { column: 'in_progress' });
+
+        // Close the modal
+        outputModal.close();
+
+        // Reload tasks to reflect the change
+        await loadTasks();
+
+        showNotification('Task moved to In Progress', 'success');
+    } catch (error) {
+        console.error('Failed to move task:', error);
+        showNotification('Failed to move task. Please try again.', 'error');
     }
 }
 
@@ -1712,8 +1745,27 @@ function openTaskModal(task = null) {
     }
 }
 
-function showOutput(task) {
+// Track current task for the output modal's Accept button
+let outputModalTask = null;
+
+function showOutput(task, results = null) {
     testOutput.textContent = task.last_output || 'No output available';
+    outputModalTask = task;
+
+    // Check if task is in Done column and tests failed
+    const isInDone = task.column === 'done';
+    const hasFailed = results && !results.all_passed;
+
+    if (isInDone && hasFailed) {
+        // Calculate failed count
+        const failedCount = results.results ? results.results.filter(r => !r.passed).length : 0;
+        const testWord = failedCount === 1 ? 'test' : 'tests';
+        outputFailedCount.textContent = `${failedCount} ${testWord} failed. Move task to In Progress?`;
+        outputMovePrompt.classList.remove('hidden');
+    } else {
+        outputMovePrompt.classList.add('hidden');
+    }
+
     outputModal.showModal();
 }
 
@@ -2300,7 +2352,7 @@ async function handleRunTest(taskId, button) {
 
         // Show output if there's an error
         if (!result.results.all_passed) {
-            showOutput(result.task);
+            showOutput(result.task, result.results);
         }
     } catch (error) {
         console.error('Failed to run test:', error);
