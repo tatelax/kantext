@@ -219,20 +219,14 @@ func (s *TaskStore) Load() error {
 	// Enrich tasks with git blame author information
 	s.refreshGitBlame()
 
-	// If no columns were found, create defaults
-	if len(s.columns) == 0 {
-		s.columns = []models.ColumnDefinition{
-			{Slug: "inbox", Name: "Inbox", Order: 0},
-			{Slug: "in_progress", Name: "In Progress", Order: 1},
-			{Slug: "done", Name: "Done", Order: 2},
-		}
-	}
+	// Ensure default columns exist (regardless of what was parsed)
+	columnsChanged := s.ensureDefaultColumnsLocked()
 
 	// Normalize tasks - fill in missing required fields
-	needsSave := s.normalizeTasksLocked()
+	tasksChanged := s.normalizeTasksLocked()
 
-	// If normalization made changes, save the file
-	if needsSave {
+	// If changes were made, save the file
+	if columnsChanged || tasksChanged {
 		s.mu.Unlock()
 		err := s.Save()
 		s.mu.Lock()
@@ -272,6 +266,42 @@ func (s *TaskStore) normalizeTasksLocked() bool {
 		// Check and fill missing updated_at
 		if task.UpdatedAt.IsZero() {
 			task.UpdatedAt = now
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+// ensureDefaultColumnsLocked ensures all default columns exist.
+// Adds missing defaults while preserving existing columns and their order.
+// Returns true if changes were made. Must be called with lock held.
+func (s *TaskStore) ensureDefaultColumnsLocked() bool {
+	changed := false
+
+	// Build map of existing column slugs
+	existingColumns := make(map[string]bool)
+	for _, col := range s.columns {
+		existingColumns[col.Slug] = true
+	}
+
+	// Find max order to append after existing columns
+	maxOrder := -1
+	for _, col := range s.columns {
+		if col.Order > maxOrder {
+			maxOrder = col.Order
+		}
+	}
+
+	// Add any missing default columns
+	for _, defaultCol := range models.DefaultColumns {
+		if !existingColumns[defaultCol.Slug] {
+			maxOrder++
+			s.columns = append(s.columns, models.ColumnDefinition{
+				Slug:  defaultCol.Slug,
+				Name:  defaultCol.Name,
+				Order: maxOrder,
+			})
 			changed = true
 		}
 	}
@@ -455,11 +485,8 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 }
 
 func (s *TaskStore) createInitialFile() error {
-	s.columns = []models.ColumnDefinition{
-		{Slug: "inbox", Name: "Inbox", Order: 0},
-		{Slug: "in_progress", Name: "In Progress", Order: 1},
-		{Slug: "done", Name: "Done", Order: 2},
-	}
+	s.columns = make([]models.ColumnDefinition, len(models.DefaultColumns))
+	copy(s.columns, models.DefaultColumns)
 
 	file, err := os.Create(s.filePath)
 	if err != nil {
@@ -584,6 +611,11 @@ func (s *TaskStore) UpdateColumn(slug string, newName string) (*models.ColumnDef
 func (s *TaskStore) DeleteColumn(slug string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Check if this is a protected default column
+	if models.IsDefaultColumn(slug) {
+		return fmt.Errorf("cannot delete default column '%s'", slug)
+	}
 
 	// Check if column has tasks
 	for _, task := range s.tasks {

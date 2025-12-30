@@ -21,6 +21,18 @@ type ColumnDefinition struct {
 	Order int    `json:"order"`
 }
 
+// DefaultColumns defines the columns that must always exist
+var DefaultColumns = []ColumnDefinition{
+	{Slug: string(ColumnInbox), Name: "Inbox", Order: 0},
+	{Slug: string(ColumnInProgress), Name: "In Progress", Order: 1},
+	{Slug: string(ColumnDone), Name: "Done", Order: 2},
+}
+
+// IsDefaultColumn returns true if the given slug is a protected default column
+func IsDefaultColumn(slug string) bool {
+	return slug == string(ColumnInbox) || slug == string(ColumnInProgress) || slug == string(ColumnDone)
+}
+
 // NameToSlug converts a column name to a slug
 func NameToSlug(name string) string {
 	slug := strings.ToLower(strings.TrimSpace(name))
