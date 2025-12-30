@@ -32,6 +32,7 @@ func main() {
 	// Configuration from config file
 	workDir := cfg.WorkingDirectory
 	tasksFile := cfg.TasksFile()
+	testRunnerConfig := cfg.TestRunner
 
 	// Check if tasks file exists, create if not
 	if _, err := os.Stat(tasksFile); os.IsNotExist(err) {
@@ -51,7 +52,7 @@ func main() {
 
 	// Initialize services
 	taskStore := services.NewTaskStore(tasksFile)
-	testRunner := services.NewTestRunner(workDir)
+	testRunner := services.NewTestRunnerWithConfig(workDir, testRunnerConfig)
 
 	// Initialize tool handler
 	toolHandler := mcp.NewToolHandler(taskStore, testRunner)

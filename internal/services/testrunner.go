@@ -8,18 +8,29 @@ import (
 	"strings"
 	"time"
 
+	"kantext/internal/config"
 	"kantext/internal/models"
 )
 
-// TestRunner executes Go tests
+// TestRunner executes tests using configurable commands
 type TestRunner struct {
 	workDir string
+	config  config.TestRunnerConfig
 }
 
-// NewTestRunner creates a new TestRunner
+// NewTestRunner creates a new TestRunner with default configuration
 func NewTestRunner(workDir string) *TestRunner {
 	return &TestRunner{
 		workDir: workDir,
+		config:  config.TestRunnerConfig{},
+	}
+}
+
+// NewTestRunnerWithConfig creates a new TestRunner with custom configuration
+func NewTestRunnerWithConfig(workDir string, cfg config.TestRunnerConfig) *TestRunner {
+	return &TestRunner{
+		workDir: workDir,
+		config:  cfg,
 	}
 }
 
@@ -35,14 +46,21 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 		testDir = ""
 	}
 
-	// Build the go test command
-	// Run specific test function: go test -v -count=1 -run ^TestFuncName$ ./path/to/dir/
-	// -count=1 disables test caching to ensure tests always run fresh
+	// Build the test path
 	testPath := "./"
 	if testDir != "" {
 		testPath = "./" + testDir + "/"
 	}
-	cmd := exec.CommandContext(ctx, "go", "test", "-v", "-count=1", "-run", "^"+testFunc+"$", testPath)
+
+	// Build the command from config template
+	// Replace placeholders: {testFunc} and {testPath}
+	cmdStr := r.config.GetCommand()
+	cmdStr = strings.ReplaceAll(cmdStr, "{testFunc}", testFunc)
+	cmdStr = strings.ReplaceAll(cmdStr, "{testPath}", testPath)
+
+	// Split command into parts for exec
+	// Use shell to handle the command properly
+	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 
 	// Set the working directory if specified
 	if r.workDir != "" {
@@ -66,14 +84,19 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 		RunTime: elapsed,
 	}
 
+	// Get configurable strings
+	passString := r.config.GetPassString()
+	failString := r.config.GetFailString()
+	noTestsString := r.config.GetNoTestsString()
+
 	if err != nil {
 		// Check if it's a test failure or an execution error
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			// Exit code 1 typically means test failed
 			if exitErr.ExitCode() == 1 {
 				result.Passed = false
-				// Check if output contains FAIL
-				if strings.Contains(output, "FAIL") {
+				// Check if output contains the fail string
+				if strings.Contains(output, failString) {
 					result.Error = "Test failed"
 				} else {
 					result.Error = err.Error()
@@ -87,12 +110,12 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 			result.Error = err.Error()
 		}
 	} else {
-		// Check output for PASS, but treat "no tests to run" as a failure
-		if strings.Contains(output, "no tests to run") {
+		// Check output for pass string, but treat "no tests to run" as a failure
+		if strings.Contains(output, noTestsString) {
 			result.Passed = false
 			result.Error = "No matching test found - test file or function may not exist"
 		} else {
-			result.Passed = strings.Contains(output, "PASS")
+			result.Passed = strings.Contains(output, passString)
 		}
 	}
 

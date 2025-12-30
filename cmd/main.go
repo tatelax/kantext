@@ -26,6 +26,7 @@ func main() {
 	flag.Parse()
 
 	var workDir, tasksFile string
+	var testRunnerConfig config.TestRunnerConfig
 
 	// Determine config path: explicit flag > local config.json > no config
 	cfgPath := *configPath
@@ -44,6 +45,7 @@ func main() {
 		}
 		workDir = cfg.WorkingDirectory
 		tasksFile = cfg.TasksFile()
+		testRunnerConfig = cfg.TestRunner
 	} else {
 		// Fall back to current working directory
 		var err error
@@ -52,6 +54,7 @@ func main() {
 			log.Fatalf("Failed to get working directory: %v", err)
 		}
 		tasksFile = filepath.Join(workDir, config.DefaultTasksFileName)
+		// testRunnerConfig uses defaults (empty struct)
 	}
 
 	// Initialize WebSocket hub (must be before other services)
@@ -60,7 +63,7 @@ func main() {
 
 	// Initialize services
 	taskStore := services.NewTaskStore(tasksFile)
-	testRunner := services.NewTestRunner(workDir)
+	testRunner := services.NewTestRunnerWithConfig(workDir, testRunnerConfig)
 
 	// Initialize file watcher for real-time updates
 	fileWatcher, err := services.NewFileWatcher(tasksFile, wsHub)

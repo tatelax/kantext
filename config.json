@@ -1,4 +1,10 @@
 {
   "working_directory": "/home/coder/reposell",
-  "tasks_file": "TASKS.md"
+  "tasks_file": "TASKS.md",
+  "test_runner": {
+    "command": "go test -v -count=1 -run ^{testFunc}$ {testPath}",
+    "pass_string": "PASS",
+    "fail_string": "FAIL",
+    "no_tests_string": "no tests to run"
+  }
 }
