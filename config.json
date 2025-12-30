@@ -1,6 +1,7 @@
 {
   "working_directory": "/home/coder/reposell",
   "tasks_file": "TASKS.md",
+  "stale_threshold_days": 7,
   "test_runner": {
     "command": "go test -v -count=1 -run ^{testFunc}$ {testPath}",
     "pass_string": "PASS",

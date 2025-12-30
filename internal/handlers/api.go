@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"kantext/internal/config"
 	"kantext/internal/models"
 	"kantext/internal/services"
 
@@ -12,16 +13,35 @@ import (
 
 // APIHandler handles REST API requests
 type APIHandler struct {
-	store  *services.TaskStore
-	runner *services.TestRunner
+	store              *services.TaskStore
+	runner             *services.TestRunner
+	staleThresholdDays int
+	configPath         string
+	config             *config.Config
 }
 
 // NewAPIHandler creates a new APIHandler
 func NewAPIHandler(store *services.TaskStore, runner *services.TestRunner) *APIHandler {
 	return &APIHandler{
-		store:  store,
-		runner: runner,
+		store:              store,
+		runner:             runner,
+		staleThresholdDays: 7, // default
 	}
+}
+
+// SetStaleThresholdDays sets the stale threshold for tasks
+func (h *APIHandler) SetStaleThresholdDays(days int) {
+	h.staleThresholdDays = days
+}
+
+// SetConfigPath sets the path to the config file
+func (h *APIHandler) SetConfigPath(path string) {
+	h.configPath = path
+}
+
+// SetConfig sets the config reference
+func (h *APIHandler) SetConfig(cfg *config.Config) {
+	h.config = cfg
 }
 
 // respondJSON writes a JSON response
@@ -293,4 +313,95 @@ func (h *APIHandler) ReorderTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, task)
+}
+
+// GetConfig returns client-side configuration settings
+func (h *APIHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	configData := map[string]interface{}{
+		"stale_threshold_days": h.staleThresholdDays,
+	}
+
+	// Include full config if available
+	if h.config != nil {
+		configData["working_directory"] = h.config.WorkingDirectory
+		configData["tasks_file"] = h.config.TasksFileName
+		if configData["tasks_file"] == "" {
+			configData["tasks_file"] = config.DefaultTasksFileName
+		}
+		configData["test_runner"] = map[string]string{
+			"command":         h.config.TestRunner.GetCommand(),
+			"pass_string":     h.config.TestRunner.GetPassString(),
+			"fail_string":     h.config.TestRunner.GetFailString(),
+			"no_tests_string": h.config.TestRunner.GetNoTestsString(),
+		}
+	}
+
+	respondJSON(w, http.StatusOK, configData)
+}
+
+// UpdateConfigRequest defines the structure for config update requests
+type UpdateConfigRequest struct {
+	TasksFile          *string                  `json:"tasks_file,omitempty"`
+	StaleThresholdDays *int                     `json:"stale_threshold_days,omitempty"`
+	TestRunner         *TestRunnerUpdateRequest `json:"test_runner,omitempty"`
+}
+
+// TestRunnerUpdateRequest defines test runner config updates
+type TestRunnerUpdateRequest struct {
+	Command       *string `json:"command,omitempty"`
+	PassString    *string `json:"pass_string,omitempty"`
+	FailString    *string `json:"fail_string,omitempty"`
+	NoTestsString *string `json:"no_tests_string,omitempty"`
+}
+
+// UpdateConfig updates the application configuration
+func (h *APIHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
+	if h.configPath == "" || h.config == nil {
+		respondError(w, http.StatusBadRequest, "Configuration not available")
+		return
+	}
+
+	var req UpdateConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate stale_threshold_days
+	if req.StaleThresholdDays != nil && *req.StaleThresholdDays < 1 {
+		respondError(w, http.StatusBadRequest, "stale_threshold_days must be at least 1")
+		return
+	}
+
+	// Update config in memory
+	if req.TasksFile != nil {
+		h.config.TasksFileName = *req.TasksFile
+	}
+	if req.StaleThresholdDays != nil {
+		h.config.StaleThresholdDays = *req.StaleThresholdDays
+		h.staleThresholdDays = *req.StaleThresholdDays
+	}
+	if req.TestRunner != nil {
+		if req.TestRunner.Command != nil {
+			h.config.TestRunner.Command = *req.TestRunner.Command
+		}
+		if req.TestRunner.PassString != nil {
+			h.config.TestRunner.PassString = *req.TestRunner.PassString
+		}
+		if req.TestRunner.FailString != nil {
+			h.config.TestRunner.FailString = *req.TestRunner.FailString
+		}
+		if req.TestRunner.NoTestsString != nil {
+			h.config.TestRunner.NoTestsString = *req.TestRunner.NoTestsString
+		}
+	}
+
+	// Save to file
+	if err := h.config.Save(h.configPath); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save config: "+err.Error())
+		return
+	}
+
+	// Return updated config
+	h.GetConfig(w, r)
 }

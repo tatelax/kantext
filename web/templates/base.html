@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=95">
+    <link rel="stylesheet" href="/static/css/styles.css?v=102">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -49,6 +49,12 @@
 <body class="bg-background text-foreground min-h-screen antialiased">
     <header class="border-b border-border px-8 py-6 flex items-center gap-4">
         <a href="/" class="text-2xl font-semibold tracking-tight flex-1 hover:opacity-80 transition-opacity">Kantext</a>
+        <button id="config-btn" class="theme-toggle" title="Settings" aria-label="Settings">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+        </button>
         <button id="theme-toggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
             <!-- Sun icon (shown in dark mode) -->
             <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -136,6 +142,12 @@
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                         </svg>
                     </button>
+                </div>
+                <div id="panel-stale-badge" class="stale-badge hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                    </svg>
+                    <span>Stale</span>
                 </div>
             </header>
 
@@ -345,7 +357,82 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=61"></script>
+    <!-- Config Dialog -->
+    <dialog id="config-modal" class="dialog-base">
+        <div class="dialog-content dialog-lg">
+            <header class="mb-6">
+                <h2 class="text-xl font-semibold tracking-tight text-foreground">Settings</h2>
+                <p class="text-sm text-muted-foreground mt-1">Configure Kantext application settings</p>
+            </header>
+
+            <form id="config-form" class="space-y-6">
+                <!-- General Settings Section -->
+                <div class="panel-section-simple">
+                    <h3 class="panel-section-title">General</h3>
+                    <div class="panel-section-body space-y-4">
+                        <div class="space-y-2">
+                            <label for="config-working-dir" class="text-sm font-medium text-foreground">Working Directory</label>
+                            <input type="text" id="config-working-dir" name="working_directory" class="input-field bg-muted/50" readonly disabled placeholder="/path/to/project">
+                            <p class="text-xs text-muted-foreground">Read-only. Set via command line or config.json directly.</p>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label for="config-tasks-file" class="text-sm font-medium text-foreground">Tasks File Name</label>
+                            <input type="text" id="config-tasks-file" name="tasks_file" class="input-field" placeholder="TASKS.md">
+                            <p class="text-xs text-muted-foreground">Name of the tasks file (relative to working directory)</p>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label for="config-stale-days" class="text-sm font-medium text-foreground">Stale Threshold (days)</label>
+                            <input type="number" id="config-stale-days" name="stale_threshold_days" class="input-field" min="1" max="365" placeholder="7">
+                            <p class="text-xs text-muted-foreground">Tasks unchanged for this many days are marked as stale</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Test Runner Settings Section -->
+                <div class="panel-section-simple">
+                    <h3 class="panel-section-title">Test Runner</h3>
+                    <div class="panel-section-body space-y-4">
+                        <div class="space-y-2">
+                            <label for="config-test-command" class="text-sm font-medium text-foreground">Test Command</label>
+                            <input type="text" id="config-test-command" name="test_command" class="input-field font-mono text-sm" placeholder="go test -v -count=1 -run ^{testFunc}$ {testPath}">
+                            <p class="text-xs text-muted-foreground">Use <code class="bg-muted px-1 rounded">{testFunc}</code> and <code class="bg-muted px-1 rounded">{testPath}</code> placeholders</p>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="space-y-2">
+                                <label for="config-pass-string" class="text-sm font-medium text-foreground">Pass String</label>
+                                <input type="text" id="config-pass-string" name="pass_string" class="input-field font-mono text-sm" placeholder="PASS">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="config-fail-string" class="text-sm font-medium text-foreground">Fail String</label>
+                                <input type="text" id="config-fail-string" name="fail_string" class="input-field font-mono text-sm" placeholder="FAIL">
+                            </div>
+                            <div class="space-y-2">
+                                <label for="config-no-tests-string" class="text-sm font-medium text-foreground">No Tests String</label>
+                                <input type="text" id="config-no-tests-string" name="no_tests_string" class="input-field font-mono text-sm" placeholder="no tests to run">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <footer class="flex justify-end gap-3 pt-4 border-t border-border">
+                    <button type="button" class="btn-secondary" onclick="closeConfigModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Settings</button>
+                </footer>
+            </form>
+
+            <button type="button" class="dialog-close" aria-label="Close dialog" onclick="closeConfigModal()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    </dialog>
+
+    <script src="/static/js/app.js?v=69"></script>
 </body>
 </html>
 {{end}}

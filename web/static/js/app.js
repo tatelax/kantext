@@ -19,6 +19,7 @@ let ws = null; // WebSocket connection
 let wsReconnectTimer = null;
 let wsReconnectDelay = 1000; // Start with 1 second
 let notificationContainer = null; // Notification container
+let staleThresholdDays = 7; // Default: 1 week
 
 // Drag effect state
 let dragGhost = null;
@@ -56,16 +57,70 @@ const panelSaveBtn = document.getElementById('panel-save-btn');
 let currentPanelTask = null; // Track the task being edited in the panel
 let panelOriginalValues = null; // Track original form values for change detection
 
+// Load configuration from server
+async function loadConfig() {
+    try {
+        const response = await fetch(`${API_BASE}/config`);
+        if (response.ok) {
+            const config = await response.json();
+            if (config.stale_threshold_days) {
+                staleThresholdDays = config.stale_threshold_days;
+            }
+            console.log('[Config] Loaded config, stale threshold:', staleThresholdDays, 'days');
+        }
+    } catch (error) {
+        console.error('[Config] Failed to load config:', error);
+    }
+}
+
+// Check if a task is stale (not updated within the threshold)
+function isTaskStale(task) {
+    if (!task.updated_at) return false;
+    const updatedAt = new Date(task.updated_at);
+    const now = new Date();
+    const diffMs = now - updatedAt;
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    return diffDays > staleThresholdDays;
+}
+
+// Update the stale badge in the task panel (if open)
+function updatePanelStaleBadge() {
+    const staleBadge = document.getElementById('panel-stale-badge');
+    if (!staleBadge || !currentPanelTask) return;
+
+    // Get fresh task data from tasks array
+    const task = tasks.find(t => t.id === currentPanelTask.id);
+    if (!task) return;
+
+    const stale = isTaskStale(task);
+    if (stale) {
+        const updatedAt = new Date(task.updated_at);
+        const now = new Date();
+        const diffMs = now - updatedAt;
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const lastUpdateDate = updatedAt.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+        staleBadge.title = `This task has not been updated in ${diffDays} days (last updated ${lastUpdateDate}). Tasks are marked stale after ${staleThresholdDays} days of inactivity.`;
+        staleBadge.classList.remove('hidden');
+    } else {
+        staleBadge.classList.add('hidden');
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[Init] Page loaded, initializing Kantext...');
     initNotificationSystem();
     initThemeToggle();
+    initConfigDialog();
     initDeleteDropZone();
     initDropIndicator();
     initDialogBackdropClose();
     initTaskPanel();
-    loadColumns().then(() => loadTasks());
+    loadConfig().then(() => loadColumns()).then(() => loadTasks());
     setupEventListeners();
     console.log('[Init] Setting up WebSocket connection...');
     connectWebSocket();
@@ -221,6 +276,156 @@ function toggleTheme() {
     } else {
         html.classList.add('dark');
         localStorage.setItem('kantext-theme', 'dark');
+    }
+}
+
+// ============================================
+// Config Dialog
+// ============================================
+
+let configModal = null;
+let configForm = null;
+let currentConfig = null;
+
+/**
+ * Initialize config dialog event listeners
+ */
+function initConfigDialog() {
+    const configBtn = document.getElementById('config-btn');
+    configModal = document.getElementById('config-modal');
+    configForm = document.getElementById('config-form');
+
+    if (configBtn) {
+        configBtn.addEventListener('click', openConfigModal);
+    }
+
+    if (configForm) {
+        configForm.addEventListener('submit', handleConfigSubmit);
+    }
+
+    // Initialize backdrop close for config modal
+    if (configModal) {
+        let mouseDownOnBackdrop = false;
+        configModal.addEventListener('mousedown', (e) => {
+            mouseDownOnBackdrop = (e.target === configModal);
+        });
+        configModal.addEventListener('click', (e) => {
+            if (mouseDownOnBackdrop && e.target === configModal) {
+                closeConfigModal();
+            }
+            mouseDownOnBackdrop = false;
+        });
+        configModal.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeConfigModal();
+            }
+        });
+    }
+}
+
+/**
+ * Open the config modal and load current settings
+ */
+async function openConfigModal() {
+    if (!configModal) return;
+
+    try {
+        // Load current config from server
+        const response = await fetch(`${API_BASE}/config`);
+        if (!response.ok) throw new Error('Failed to load config');
+
+        currentConfig = await response.json();
+        populateConfigForm(currentConfig);
+        configModal.showModal();
+    } catch (error) {
+        console.error('Failed to load config:', error);
+        showNotification('Failed to load settings', 'error');
+    }
+}
+
+/**
+ * Close the config modal
+ */
+function closeConfigModal() {
+    if (configModal) {
+        configModal.close();
+    }
+}
+
+/**
+ * Populate the config form with current values
+ */
+function populateConfigForm(config) {
+    document.getElementById('config-working-dir').value = config.working_directory || '';
+    document.getElementById('config-tasks-file').value = config.tasks_file || 'TASKS.md';
+    document.getElementById('config-stale-days').value = config.stale_threshold_days || 7;
+
+    if (config.test_runner) {
+        document.getElementById('config-test-command').value = config.test_runner.command || '';
+        document.getElementById('config-pass-string').value = config.test_runner.pass_string || 'PASS';
+        document.getElementById('config-fail-string').value = config.test_runner.fail_string || 'FAIL';
+        document.getElementById('config-no-tests-string').value = config.test_runner.no_tests_string || 'no tests to run';
+    }
+}
+
+/**
+ * Handle config form submission
+ */
+async function handleConfigSubmit(e) {
+    e.preventDefault();
+
+    const tasksFile = document.getElementById('config-tasks-file').value.trim();
+    const staleDays = parseInt(document.getElementById('config-stale-days').value);
+    const testCommand = document.getElementById('config-test-command').value.trim();
+    const passString = document.getElementById('config-pass-string').value.trim();
+    const failString = document.getElementById('config-fail-string').value.trim();
+    const noTestsString = document.getElementById('config-no-tests-string').value.trim();
+
+    const formData = {
+        tasks_file: tasksFile || undefined,
+        stale_threshold_days: staleDays || undefined,
+        test_runner: {
+            command: testCommand || undefined,
+            pass_string: passString || undefined,
+            fail_string: failString || undefined,
+            no_tests_string: noTestsString || undefined
+        }
+    };
+
+    // Clean up empty test_runner object
+    if (Object.values(formData.test_runner).every(v => v === undefined)) {
+        delete formData.test_runner;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/config`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to save config');
+        }
+
+        const updatedConfig = await response.json();
+        currentConfig = updatedConfig;
+
+        // Update local staleThresholdDays if changed
+        if (updatedConfig.stale_threshold_days) {
+            staleThresholdDays = updatedConfig.stale_threshold_days;
+        }
+
+        closeConfigModal();
+        showNotification('Settings saved successfully', 'success');
+
+        // Refresh tasks to apply new stale threshold
+        loadTasks();
+    } catch (error) {
+        console.error('Failed to save config:', error);
+        showNotification(error.message || 'Failed to save settings', 'error');
     }
 }
 
@@ -859,6 +1064,9 @@ async function loadTasks() {
             tasks = newTasks;
             renderTasks();
         }
+
+        // Always update panel stale badge (stale status can change with time)
+        updatePanelStaleBadge();
     } catch (error) {
         console.error('Failed to load tasks:', error);
     }
@@ -1475,6 +1683,16 @@ function createTaskCard(task) {
            </div>`;
     }
 
+    // Build stale icon - show red exclamation mark if task is stale
+    const stale = isTaskStale(task);
+    const staleIconHtml = stale
+        ? `<span class="task-stale-icon" title="Task is stale (not updated in ${staleThresholdDays}+ days)">
+               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+               </svg>
+           </span>`
+        : '';
+
     // Build criteria icon - show clipboard if task has acceptance criteria
     const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
     const criteriaIconHtml = hasCriteria
@@ -1492,7 +1710,7 @@ function createTaskCard(task) {
 
     card.innerHTML = `
         <div class="task-header">
-            ${criteriaIconHtml}<span class="task-title task-title-clickable${task.column === 'done' ? ' task-done' : ''}" title="Click to copy task ID">${escapeHtml(task.title)}</span>
+            ${staleIconHtml}${criteriaIconHtml}<span class="task-title task-title-clickable${task.column === 'done' ? ' task-done' : ''}" title="Click to copy task ID">${escapeHtml(task.title)}</span>
             ${actionsHtml}
         </div>
         ${metaHtml}
@@ -1897,6 +2115,28 @@ function openTaskPanel(task) {
     if (criteriaInput) criteriaInput.value = task.acceptance_criteria || '';
     if (taskIdEl) taskIdEl.textContent = task.id;
     if (panelRequiresTestCheckbox) panelRequiresTestCheckbox.checked = task.requires_test || false;
+
+    // Update stale badge visibility and tooltip
+    const staleBadge = document.getElementById('panel-stale-badge');
+    if (staleBadge) {
+        const stale = isTaskStale(task);
+        if (stale) {
+            // Calculate days since last update
+            const updatedAt = new Date(task.updated_at);
+            const now = new Date();
+            const diffMs = now - updatedAt;
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+            const lastUpdateDate = updatedAt.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            staleBadge.title = `This task has not been updated in ${diffDays} days (last updated ${lastUpdateDate}). Tasks are marked stale after ${staleThresholdDays} days of inactivity.`;
+            staleBadge.classList.remove('hidden');
+        } else {
+            staleBadge.classList.add('hidden');
+        }
+    }
 
     // Populate tests container with test entries
     if (testsContainer) {

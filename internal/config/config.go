@@ -28,8 +28,13 @@ type TestRunnerConfig struct {
 type Config struct {
 	// WorkingDirectory is the base directory for the tasks file and tests/
 	WorkingDirectory string `json:"working_directory"`
+	// OriginalWorkingDirectory preserves the original value from config for saving
+	OriginalWorkingDirectory string `json:"-"`
 	// TasksFileName is the name of the tasks file (default: TASKS.md)
 	TasksFileName string `json:"tasks_file,omitempty"`
+	// StaleThresholdDays is the number of days after which a task is considered stale
+	// Default: 7 (one week)
+	StaleThresholdDays int `json:"stale_threshold_days,omitempty"`
 	// TestRunner holds test runner configuration
 	TestRunner TestRunnerConfig `json:"test_runner,omitempty"`
 }
@@ -45,6 +50,9 @@ func Load(configPath string) (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+
+	// Store original working directory before expansion
+	cfg.OriginalWorkingDirectory = cfg.WorkingDirectory
 
 	// Expand ~ to home directory if present
 	if len(cfg.WorkingDirectory) > 0 && cfg.WorkingDirectory[0] == '~' {
@@ -69,6 +77,9 @@ func Load(configPath string) (*Config, error) {
 
 // DefaultTasksFileName is the default name for the tasks file
 const DefaultTasksFileName = "TASKS.md"
+
+// DefaultStaleThresholdDays is the default number of days for a task to be considered stale
+const DefaultStaleThresholdDays = 7
 
 // Default test runner configuration values
 const (
@@ -117,4 +128,39 @@ func (c *Config) TasksFile() string {
 		fileName = DefaultTasksFileName
 	}
 	return filepath.Join(c.WorkingDirectory, fileName)
+}
+
+// GetStaleThresholdDays returns the stale threshold in days, or the default if not set
+func (c *Config) GetStaleThresholdDays() int {
+	if c.StaleThresholdDays <= 0 {
+		return DefaultStaleThresholdDays
+	}
+	return c.StaleThresholdDays
+}
+
+// Save writes the configuration to a JSON file
+func (c *Config) Save(configPath string) error {
+	// Create a copy for saving with the original working directory
+	saveConfig := struct {
+		WorkingDirectory   string           `json:"working_directory"`
+		TasksFileName      string           `json:"tasks_file,omitempty"`
+		StaleThresholdDays int              `json:"stale_threshold_days,omitempty"`
+		TestRunner         TestRunnerConfig `json:"test_runner,omitempty"`
+	}{
+		WorkingDirectory:   c.OriginalWorkingDirectory,
+		TasksFileName:      c.TasksFileName,
+		StaleThresholdDays: c.StaleThresholdDays,
+		TestRunner:         c.TestRunner,
+	}
+
+	data, err := json.MarshalIndent(saveConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }

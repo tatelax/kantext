@@ -83,6 +83,14 @@ func main() {
 
 	// Initialize handlers
 	apiHandler := handlers.NewAPIHandler(taskStore, testRunner)
+	if cfgPath != "" {
+		cfg, _ := config.Load(cfgPath)
+		if cfg != nil {
+			apiHandler.SetStaleThresholdDays(cfg.GetStaleThresholdDays())
+			apiHandler.SetConfigPath(cfgPath)
+			apiHandler.SetConfig(cfg)
+		}
+	}
 	wsHandler := handlers.NewWSHandler(wsHub)
 	pageHandler, err := handlers.NewPageHandler(taskStore)
 	if err != nil {
@@ -109,6 +117,10 @@ func main() {
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
+		// Config routes
+		r.Get("/config", apiHandler.GetConfig)
+		r.Put("/config", apiHandler.UpdateConfig)
+
 		// Task routes
 		r.Get("/tasks", apiHandler.ListTasks)
 		r.Post("/tasks", apiHandler.CreateTask)
