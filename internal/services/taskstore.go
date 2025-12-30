@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,18 +19,20 @@ import (
 
 // TaskStore manages reading and writing tasks to a markdown file
 type TaskStore struct {
-	filePath string
-	mu       sync.RWMutex
-	tasks    map[string]*models.Task
-	columns  []models.ColumnDefinition
+	filePath        string
+	mu              sync.RWMutex
+	tasks           map[string]*models.Task
+	columns         []models.ColumnDefinition
+	taskLineNumbers map[string]int // Maps task ID to line number for git blame
 }
 
 // NewTaskStore creates a new TaskStore
 func NewTaskStore(filePath string) *TaskStore {
 	store := &TaskStore{
-		filePath: filePath,
-		tasks:    make(map[string]*models.Task),
-		columns:  []models.ColumnDefinition{},
+		filePath:        filePath,
+		tasks:           make(map[string]*models.Task),
+		columns:         []models.ColumnDefinition{},
+		taskLineNumbers: make(map[string]int),
 	}
 	store.Load()
 	return store
@@ -67,7 +71,11 @@ func (s *TaskStore) Load() error {
 
 	taskOrder := 0
 	var currentTask *models.Task
+	var currentTaskLine int // 1-indexed line number where current task starts
 	var lines []string
+
+	// Reset line numbers map for git blame lookup
+	s.taskLineNumbers = make(map[string]int)
 
 	// Read all lines first
 	for scanner.Scan() {
@@ -86,7 +94,12 @@ func (s *TaskStore) Load() error {
 			currentTask.Order = taskOrder
 			taskOrder++
 			s.tasks[currentTask.ID] = currentTask
+			// Store the line number for git blame lookup
+			if currentTaskLine > 0 {
+				s.taskLineNumbers[currentTask.ID] = currentTaskLine
+			}
 			currentTask = nil
+			currentTaskLine = 0
 		}
 	}
 
@@ -159,16 +172,19 @@ func (s *TaskStore) Load() error {
 				if legacyMatches := legacyTaskWithTestRegex.FindStringSubmatch(trimmedLine); legacyMatches != nil {
 					finalizeTask()
 					currentTask = s.parseLegacyTaskWithTest(legacyMatches, currentColumn)
+					currentTaskLine = i + 1
 					continue
 				}
 				if legacyMatches := legacyTaskNoTestRegex.FindStringSubmatch(trimmedLine); legacyMatches != nil {
 					finalizeTask()
 					currentTask = s.parseLegacyTaskNoTest(legacyMatches, currentColumn)
+					currentTaskLine = i + 1
 					continue
 				}
 				if legacyMatches := legacyOldTaskRegex.FindStringSubmatch(trimmedLine); legacyMatches != nil {
 					finalizeTask()
 					currentTask = s.parseLegacyOldTask(legacyMatches, currentColumn)
+					currentTaskLine = i + 1
 					continue
 				}
 			}
@@ -181,6 +197,7 @@ func (s *TaskStore) Load() error {
 				Priority:   models.PriorityMedium, // Default
 				TestStatus: models.TestStatusPending,
 			}
+			currentTaskLine = i + 1 // 1-indexed for git blame
 
 			switch matches[1] {
 			case "x":
@@ -194,6 +211,9 @@ func (s *TaskStore) Load() error {
 
 	// Finalize last task
 	finalizeTask()
+
+	// Enrich tasks with git blame author information
+	s.refreshGitBlame()
 
 	// If no columns were found, create defaults
 	if len(s.columns) == 0 {
@@ -635,6 +655,9 @@ func (s *TaskStore) GetAll() []*models.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Refresh git blame data to pick up any new commits
+	s.refreshGitBlame()
+
 	tasks := make([]*models.Task, 0, len(s.tasks))
 	for _, task := range s.tasks {
 		tasks = append(tasks, task)
@@ -946,4 +969,150 @@ func (s *TaskStore) Reorder(id string, column models.Column, position int) (*mod
 	}
 
 	return task, nil
+}
+
+// refreshGitBlame updates task author information from git blame.
+// It searches for each task's ID in the blame output to find the correct author,
+// which handles cases where line numbers shift due to added/removed tasks.
+func (s *TaskStore) refreshGitBlame() {
+	// Get blame data with line content
+	blameData := s.getGitBlameWithContent()
+	if len(blameData) == 0 {
+		return // Git blame not available
+	}
+
+	// Build a map of task ID -> author by searching for ID lines in blame output
+	taskAuthors := make(map[string]string)
+	for _, entry := range blameData {
+		// Look for lines like "  - id: <uuid>"
+		if strings.Contains(entry.Content, "  - id: ") {
+			// Extract the ID from the line
+			parts := strings.SplitN(entry.Content, "  - id: ", 2)
+			if len(parts) == 2 {
+				id := strings.TrimSpace(parts[1])
+				taskAuthors[id] = entry.Author
+			}
+		}
+	}
+
+	// Update each task's author based on the blame data
+	for taskID, author := range taskAuthors {
+		if task, exists := s.tasks[taskID]; exists {
+			task.UpdatedBy = author
+			task.CreatedBy = author
+		}
+	}
+}
+
+// BlameEntry represents a single line from git blame output
+type BlameEntry struct {
+	LineNum int
+	Author  string
+	Content string
+}
+
+// getGitBlameWithContent runs git blame on HEAD and returns entries with author and content.
+// Using HEAD ignores uncommitted changes, so we only see the last committed author.
+// This allows us to search for specific content (like task IDs) regardless of line numbers.
+func (s *TaskStore) getGitBlameWithContent() []BlameEntry {
+	var entries []BlameEntry
+
+	dir := filepath.Dir(s.filePath)
+	// Use HEAD to only look at committed changes, not working directory
+	cmd := exec.Command("git", "blame", "--porcelain", "HEAD", "--", s.filePath)
+	cmd.Dir = dir
+
+	output, err := cmd.Output()
+	if err != nil {
+		return entries
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var currentLine int
+	var currentAuthor string
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		// SHA line starts a new blame entry
+		if len(line) >= 40 && !strings.HasPrefix(line, "\t") && !strings.Contains(line[:40], " ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				fmt.Sscanf(parts[2], "%d", &currentLine)
+			}
+		}
+
+		// Author line
+		if strings.HasPrefix(line, "author ") {
+			currentAuthor = strings.TrimPrefix(line, "author ")
+		}
+
+		// Content line (starts with tab)
+		if strings.HasPrefix(line, "\t") && currentLine > 0 {
+			content := strings.TrimPrefix(line, "\t")
+			entries = append(entries, BlameEntry{
+				LineNum: currentLine,
+				Author:  currentAuthor,
+				Content: content,
+			})
+		}
+	}
+
+	return entries
+}
+
+// getGitBlameAuthors runs git blame on the tasks file and returns a map of line number to author name.
+// Returns an empty map if git blame fails (e.g., file not in git, uncommitted changes, etc.)
+func (s *TaskStore) getGitBlameAuthors() map[int]string {
+	authors := make(map[int]string)
+
+	// Get the directory containing the file for running git
+	dir := filepath.Dir(s.filePath)
+
+	// Run git blame with porcelain format for easier parsing
+	cmd := exec.Command("git", "blame", "--porcelain", s.filePath)
+	cmd.Dir = dir
+
+	output, err := cmd.Output()
+	if err != nil {
+		// Git blame failed - file might not be tracked, or no commits yet
+		return authors
+	}
+
+	// Parse porcelain output
+	// Format:
+	// <sha1> <orig-line> <final-line> [<count>]
+	// author <name>
+	// author-mail <email>
+	// ... other headers ...
+	// 	<actual line content>
+	lines := strings.Split(string(output), "\n")
+	var currentLine int
+	var currentAuthor string
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		// SHA line starts a new blame entry
+		// Format: <sha1> <orig> <final> [<count>]
+		if len(line) >= 40 && !strings.HasPrefix(line, "\t") && !strings.Contains(line[:40], " ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				// parts[2] is the final line number
+				fmt.Sscanf(parts[2], "%d", &currentLine)
+			}
+		}
+
+		// Author line
+		if strings.HasPrefix(line, "author ") {
+			currentAuthor = strings.TrimPrefix(line, "author ")
+		}
+
+		// Content line (starts with tab) marks end of headers for this line
+		if strings.HasPrefix(line, "\t") && currentLine > 0 && currentAuthor != "" {
+			authors[currentLine] = currentAuthor
+		}
+	}
+
+	return authors
 }

@@ -664,6 +664,15 @@ html.dark .task-card {
         white;
 }
 
+/* Uncommitted tasks - dashed border */
+.task-card.uncommitted {
+    border-style: dashed;
+}
+
+.task-card.uncommitted .task-author {
+    font-style: italic;
+}
+
 html.dark .task-card.no-test {
     background:
         repeating-linear-gradient(
@@ -759,6 +768,12 @@ html.dark .task-card.no-test {
     color: var(--muted-foreground);
     min-width: 0;
     overflow: hidden;
+}
+
+/* Author display */
+.task-author {
+    white-space: nowrap;
+    font-weight: 500;
 }
 
 /* Date display */

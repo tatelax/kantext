@@ -825,7 +825,7 @@ function tasksEqual(oldTasks, newTasks) {
         const oldTask = oldMap.get(newTask.id);
         if (!oldTask) return false;
 
-        // Compare relevant fields (including updated_at since we display dates on cards)
+        // Compare relevant fields (including metadata displayed on cards)
         if (oldTask.title !== newTask.title ||
             oldTask.column !== newTask.column ||
             oldTask.priority !== newTask.priority ||
@@ -833,6 +833,8 @@ function tasksEqual(oldTasks, newTasks) {
             oldTask.requires_test !== newTask.requires_test ||
             oldTask.acceptance_criteria !== newTask.acceptance_criteria ||
             oldTask.updated_at !== newTask.updated_at ||
+            oldTask.updated_by !== newTask.updated_by ||
+            oldTask.created_by !== newTask.created_by ||
             !testsArrayEqual(oldTask.tests, newTask.tests)) {
             return false;
         }
@@ -1063,10 +1065,12 @@ function updateTaskCard(card, task) {
     const hasTest = taskHasTest(task);
     const requiresTest = task.requires_test || false;
     const priorityClass = `priority-${task.priority || 'medium'}`;
+    const taskAuthor = task.updated_by || task.created_by || '';
+    const uncommittedClass = isUncommitted(taskAuthor) ? ' uncommitted' : '';
 
     // Update priority class if changed
     // Apply no-test class only if task doesn't require a test
-    const expectedClasses = `task-card ${priorityClass}` + (!requiresTest ? ' no-test' : '');
+    const expectedClasses = `task-card ${priorityClass}` + (!requiresTest ? ' no-test' : '') + uncommittedClass;
     if (card.className !== expectedClasses) {
         card.className = expectedClasses;
     }
@@ -1103,6 +1107,10 @@ function updateTaskCard(card, task) {
     // Handle test meta section - rebuild with new structure
     const existingMeta = card.querySelector('.task-meta');
     const dateText = formatCardDate(task.updated_at || task.created_at);
+    const author = task.updated_by || task.created_by || '';
+    const authorName = getFirstName(author); // Returns "Uncommitted" if no author
+    const authorHtml = `<span class="task-author">${escapeHtml(authorName)}</span>`;
+    const authorSeparator = dateText ? '<span class="task-meta-separator">•</span>' : '';
 
     // Helper to build the new meta HTML
     const buildMetaHtml = () => {
@@ -1113,6 +1121,7 @@ function updateTaskCard(card, task) {
                 ? `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`
                 : '';
             return `<div class="task-meta">
+                ${authorHtml}${authorSeparator}
                 <span class="task-date">${escapeHtml(dateText)}</span>
                 <span class="task-meta-separator">•</span>
                 <span class="task-test-count">${escapeHtml(testDisplay)}</span>
@@ -1120,16 +1129,18 @@ function updateTaskCard(card, task) {
             </div>`;
         } else if (requiresTest) {
             return `<div class="task-meta">
+                ${authorHtml}${authorSeparator}
                 <span class="task-date">${escapeHtml(dateText)}</span>
                 <span class="task-meta-separator">•</span>
                 <span class="task-test-count no-test">No test</span>
             </div>`;
-        } else if (dateText) {
+        } else {
+            // No test required - show author and date
             return `<div class="task-meta">
+                ${authorHtml}${authorSeparator}
                 <span class="task-date">${escapeHtml(dateText)}</span>
             </div>`;
         }
-        return '';
     };
 
     // Update or create meta section
@@ -1199,6 +1210,24 @@ function getTestDisplayText(task) {
 }
 
 /**
+ * Extract first name from a full name (e.g., "Tate McCormick" -> "Tate")
+ * Returns "Uncommitted" for uncommitted tasks (empty author or "Not Committed Yet")
+ */
+function getFirstName(fullName) {
+    // isUncommitted handles both empty and "Not Committed Yet"
+    if (isUncommitted(fullName)) return 'Uncommitted';
+    return fullName.split(' ')[0];
+}
+
+/**
+ * Check if the author indicates uncommitted changes
+ * Empty author means task hasn't been committed yet
+ */
+function isUncommitted(author) {
+    return !author || author === 'Not Committed Yet';
+}
+
+/**
  * Compare two test arrays for equality
  */
 function testsArrayEqual(a, b) {
@@ -1244,8 +1273,10 @@ function createTaskCard(task) {
     const hasTest = taskHasTest(task);
     const requiresTest = task.requires_test || false;
     const priorityClass = `priority-${task.priority || 'medium'}`;
+    const taskAuthor = task.updated_by || task.created_by || '';
+    const uncommittedClass = isUncommitted(taskAuthor) ? ' uncommitted' : '';
     // Apply no-test class only if task doesn't require a test
-    card.className = `task-card ${priorityClass}` + (!requiresTest ? ' no-test' : '');
+    card.className = `task-card ${priorityClass}` + (!requiresTest ? ' no-test' : '') + uncommittedClass;
     card.draggable = true;
     card.dataset.id = task.id;
 
@@ -1256,33 +1287,40 @@ function createTaskCard(task) {
            </div>`
         : '';
 
-    // Build meta HTML - always show date, optionally show test info
+    // Build meta HTML - show author, date, and optionally test info
     let metaHtml = '';
     const dateText = formatCardDate(task.updated_at || task.created_at);
+    const author = task.updated_by || task.created_by || '';
+    const authorName = getFirstName(author); // Returns "Uncommitted" if no author
+    const authorHtml = `<span class="task-author">${escapeHtml(authorName)}</span>`;
+    const authorSeparator = dateText ? '<span class="task-meta-separator">•</span>' : '';
 
     if (hasTest) {
-        // Task has test configured - show date, test count, and status (if run)
+        // Task has test configured - show author, date, test count, and status (if run)
         const testDisplay = getTestDisplayText(task);
         const showStatus = task.test_status && task.test_status !== 'pending';
         const statusHtml = showStatus
             ? `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`
             : '';
         metaHtml = `<div class="task-meta">
+               ${authorHtml}${authorSeparator}
                <span class="task-date">${escapeHtml(dateText)}</span>
                <span class="task-meta-separator">•</span>
                <span class="task-test-count">${escapeHtml(testDisplay)}</span>
                ${statusHtml}
            </div>`;
     } else if (requiresTest) {
-        // Task requires test but none configured - show date and "No test" indicator
+        // Task requires test but none configured - show author, date and "No test" indicator
         metaHtml = `<div class="task-meta">
+               ${authorHtml}${authorSeparator}
                <span class="task-date">${escapeHtml(dateText)}</span>
                <span class="task-meta-separator">•</span>
                <span class="task-test-count no-test">No test</span>
            </div>`;
-    } else if (dateText) {
-        // No test required - just show date
+    } else {
+        // No test required - show author and date
         metaHtml = `<div class="task-meta">
+               ${authorHtml}${authorSeparator}
                <span class="task-date">${escapeHtml(dateText)}</span>
            </div>`;
     }
