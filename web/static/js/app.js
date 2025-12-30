@@ -658,6 +658,32 @@ function setupEventListeners() {
         addTaskBtn.addEventListener('click', () => openTaskModal());
     }
 
+    // Global keyboard shortcut: Spacebar to open New Task dialog
+    document.addEventListener('keydown', (e) => {
+        // Only trigger on spacebar
+        if (e.key !== ' ') return;
+
+        // Don't trigger if user is typing in an input, textarea, or contenteditable
+        const activeEl = document.activeElement;
+        const isTyping = activeEl && (
+            activeEl.tagName === 'INPUT' ||
+            activeEl.tagName === 'TEXTAREA' ||
+            activeEl.isContentEditable
+        );
+        if (isTyping) return;
+
+        // Don't trigger if any dialog is open
+        const anyDialogOpen = document.querySelector('dialog[open]') ||
+                              taskPanel?.classList.contains('open');
+        if (anyDialogOpen) return;
+
+        // Prevent default spacebar scrolling behavior
+        e.preventDefault();
+
+        // Open the new task modal
+        openNewTaskModal();
+    });
+
     // Form submission
     if (taskForm) {
         taskForm.addEventListener('submit', handleFormSubmit);
