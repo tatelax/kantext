@@ -54,8 +54,9 @@ type Task struct {
 	AcceptanceCriteria string     `json:"acceptance_criteria"`
 	Priority           Priority   `json:"priority"`
 	Column             Column     `json:"column"`
-	TestFile           string     `json:"test_file"`
-	TestFunc           string     `json:"test_func"`
+	RequiresTest       bool       `json:"requires_test"`                // Whether task completion requires a passing test
+	TestFile           string     `json:"test_file"`                    // Path to test file relative to working dir (e.g., "internal/auth/auth_test.go")
+	TestFunc           string     `json:"test_func"`                    // Test function name (e.g., "TestLogin")
 	TestStatus         TestStatus `json:"test_status"`
 	LastRun            *time.Time `json:"last_run,omitempty"`
 	LastOutput         string     `json:"last_output,omitempty"`
@@ -71,10 +72,8 @@ type CreateTaskRequest struct {
 	Title              string   `json:"title"`
 	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Priority           Priority `json:"priority"`
-	TestFile           string   `json:"test_file,omitempty"`          // Optional: specify existing test file
-	TestFunc           string   `json:"test_func,omitempty"`          // Optional: specify existing test function
-	GenerateTestFile   *bool    `json:"generate_test_file,omitempty"` // Optional: whether to generate test file (default: true)
-	Author             string   `json:"author,omitempty"`             // Optional: who is creating this task
+	RequiresTest       *bool    `json:"requires_test,omitempty"` // Optional: whether task requires a passing test (default: false)
+	Author             string   `json:"author,omitempty"`        // Optional: who is creating this task
 }
 
 // UpdateTaskRequest is the request body for updating a task
@@ -83,7 +82,10 @@ type UpdateTaskRequest struct {
 	AcceptanceCriteria *string   `json:"acceptance_criteria,omitempty"`
 	Priority           *Priority `json:"priority,omitempty"`
 	Column             *Column   `json:"column,omitempty"`
-	Author             string    `json:"author,omitempty"` // Optional: who is updating this task
+	RequiresTest       *bool     `json:"requires_test,omitempty"` // Optional: whether task requires a passing test
+	TestFile           *string   `json:"test_file,omitempty"`     // Optional: path to test file relative to working dir
+	TestFunc           *string   `json:"test_func,omitempty"`     // Optional: test function name
+	Author             string    `json:"author,omitempty"`        // Optional: who is updating this task
 }
 
 // TestResult represents the result of running a test

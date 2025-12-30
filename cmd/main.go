@@ -25,8 +25,7 @@ func main() {
 	port := flag.String("port", "8081", "Port to run the server on")
 	flag.Parse()
 
-	var workDir, tasksFile, testsDir string
-	testsRelative := "tests"
+	var workDir, tasksFile string
 
 	// Determine config path: explicit flag > local config.json > no config
 	cfgPath := *configPath
@@ -45,7 +44,6 @@ func main() {
 		}
 		workDir = cfg.WorkingDirectory
 		tasksFile = cfg.TasksFile()
-		testsDir = cfg.TestsDir()
 	} else {
 		// Fall back to current working directory
 		var err error
@@ -54,7 +52,6 @@ func main() {
 			log.Fatalf("Failed to get working directory: %v", err)
 		}
 		tasksFile = filepath.Join(workDir, config.DefaultTasksFileName)
-		testsDir = filepath.Join(workDir, testsRelative)
 	}
 
 	// Initialize WebSocket hub (must be before other services)
@@ -62,9 +59,8 @@ func main() {
 	go wsHub.Run()
 
 	// Initialize services
-	testGen := services.NewTestGenerator(testsDir) // Uses absolute path to create files
-	taskStore := services.NewTaskStore(tasksFile, testGen)
-	testRunner := services.NewTestRunner(testsRelative, workDir) // Uses relative path for go test command
+	taskStore := services.NewTaskStore(tasksFile)
+	testRunner := services.NewTestRunner(workDir)
 
 	// Initialize file watcher for real-time updates
 	fileWatcher, err := services.NewFileWatcher(tasksFile, wsHub)
@@ -154,14 +150,13 @@ func main() {
 ║                     Kantext Web Server                     ║
 ║    Test-Driven Development meets Visual Task Management    ║
 ╠════════════════════════════════════════════════════════════╣
-║  * Server running at: http://localhost:%s                ║
-║  * WebSocket endpoint: ws://localhost:%s/ws              ║             
-║  * Working directory: %s                 ║
-║  * Tasks file: %s               ║
-║  * Tests directory: %s             ║
-║  * Real-time updates: ENABLED                              ║
+║  Server running at: http://localhost:%s
+║  WebSocket endpoint: ws://localhost:%s/ws
+║  Working directory: %s
+║  Tasks file: %s
+║  Real-time updates: ENABLED
 ╚════════════════════════════════════════════════════════════╝
-`, *port, *port, workDir, tasksFile, testsDir)
+`, *port, *port, workDir, tasksFile)
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)

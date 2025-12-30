@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=52">
+    <link rel="stylesheet" href="/static/css/styles.css?v=54">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -202,17 +202,23 @@
                         <svg class="w-4 h-4 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
-                        <span>Advanced</span>
+                        <span>Test Configuration</span>
                     </summary>
                     <div class="panel-section-content">
                         <div class="space-y-2 mb-4">
-                            <span class="text-sm font-medium text-foreground">Test Configuration</span>
-                            <p class="text-xs text-muted-foreground">Link this task to a specific test file and function.</p>
+                            <div class="flex items-center gap-2">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="panel-requires-test" name="requires_test">
+                                    <span class="toggle-track"></span>
+                                    <span class="toggle-label">Requires passing test to complete</span>
+                                </label>
+                            </div>
+                            <p class="text-xs text-muted-foreground">Path relative to working directory (e.g., internal/auth/auth_test.go)</p>
                         </div>
                         <div class="grid grid-cols-2 gap-4">
                             <div class="space-y-2">
                                 <label for="panel-test-file" class="text-sm font-medium text-foreground">Test File</label>
-                                <input type="text" id="panel-test-file" name="test_file" class="input-field" placeholder="e.g., auth_test.go">
+                                <input type="text" id="panel-test-file" name="test_file" class="input-field" placeholder="e.g., internal/auth/auth_test.go">
                             </div>
                             <div class="space-y-2">
                                 <label for="panel-test-func" class="text-sm font-medium text-foreground">Test Function</label>
@@ -272,42 +278,12 @@
 
                 <div class="flex items-center gap-2 pt-2">
                     <label class="toggle-switch">
-                        <input type="checkbox" id="generate_test_file" name="generate_test_file" checked>
+                        <input type="checkbox" id="requires_test" name="requires_test">
                         <span class="toggle-track"></span>
-                        <span class="toggle-label">Unit testing required to complete task</span>
-                        <span class="toggle-hint"></span>
+                        <span class="toggle-label">Requires passing test to complete</span>
+                        <span class="toggle-hint">Configure test file in Edit panel after creation</span>
                     </label>
                 </div>
-
-                <!-- Collapsible Advanced Section -->
-                <details id="advanced-details" class="border-t border-border pt-4 mt-4">
-                    <summary class="flex items-center gap-2 cursor-pointer text-muted-foreground text-sm hover:text-foreground transition-colors">
-                        <svg class="w-3 h-3 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                        Advanced: Test Configuration
-                    </summary>
-                    <div class="pt-4">
-                        <div class="flex items-center gap-2 mb-4">
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="auto_generate_test" checked>
-                                <span class="toggle-track"></span>
-                                <span class="toggle-label">Auto-generate test file and function names</span>
-                            </label>
-                        </div>
-                        <p id="test-config-hint" class="text-muted-foreground text-sm mb-4">Test names will be generated from the task title.</p>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="space-y-2">
-                                <label for="test_file" class="text-sm font-medium text-foreground">Test File</label>
-                                <input type="text" id="test_file" name="test_file" class="input-field" placeholder="e.g., auth_test.go" readonly>
-                            </div>
-                            <div class="space-y-2">
-                                <label for="test_func" class="text-sm font-medium text-foreground">Test Function</label>
-                                <input type="text" id="test_func" name="test_func" class="input-field" placeholder="e.g., TestLogin" readonly>
-                            </div>
-                        </div>
-                    </div>
-                </details>
 
                 <footer class="flex justify-end gap-3 pt-4">
                     <button type="button" class="btn-secondary cancel-btn" onclick="this.closest('dialog').close()">Cancel</button>
@@ -374,7 +350,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=35"></script>
+    <script src="/static/js/app.js?v=37"></script>
 </body>
 </html>
 {{end}}

@@ -726,6 +726,15 @@ html.dark .column {
     flex: 1 1 0;
 }
 
+/* No test configured placeholder */
+.task-test.no-test-configured {
+    font-family: inherit;
+    font-style: italic;
+    color: var(--muted-foreground);
+    background-color: transparent;
+    border: 1px dashed var(--border);
+}
+
 /* Task Status Badges */
 .task-status {
     font-size: 0.75rem;

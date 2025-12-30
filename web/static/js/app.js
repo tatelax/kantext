@@ -31,11 +31,9 @@ const taskModal = document.getElementById('task-modal');
 const outputModal = document.getElementById('output-modal');
 const taskForm = document.getElementById('task-form');
 const testOutput = document.getElementById('test-output');
-const advancedDetails = document.getElementById('advanced-details');
 const board = document.getElementById('board');
-const autoGenerateCheckbox = document.getElementById('auto_generate_test');
-const testConfigHint = document.getElementById('test-config-hint');
-const generateTestFileCheckbox = document.getElementById('generate_test_file');
+const requiresTestCheckbox = document.getElementById('requires_test');
+const panelRequiresTestCheckbox = document.getElementById('panel-requires-test');
 
 // Task Panel Elements (for editing existing tasks)
 const taskPanel = document.getElementById('task-panel');
@@ -256,7 +254,7 @@ function hideDeleteDropZone() {
 function handleDeleteZoneDragOver(e) {
     if (!draggedTask) return;
     e.preventDefault();
-    e.stopPropagation();
+    // Don't stopPropagation - we need the event to reach trackDragMovement on document
     e.dataTransfer.dropEffect = 'move';
     deleteDropZone.classList.add('drag-over');
 }
@@ -689,22 +687,6 @@ function setupEventListeners() {
         taskForm.addEventListener('submit', handleFormSubmit);
     }
 
-    // Title input - update test names as user types
-    const titleInput = document.getElementById('title');
-    if (titleInput) {
-        titleInput.addEventListener('input', updateTestNamesFromTitle);
-    }
-
-    // Auto-generate checkbox toggle
-    if (autoGenerateCheckbox) {
-        autoGenerateCheckbox.addEventListener('change', toggleAutoGenerate);
-    }
-
-    // Generate test file checkbox toggle
-    if (generateTestFileCheckbox) {
-        generateTestFileCheckbox.addEventListener('change', toggleAdvancedSection);
-    }
-
     // Copy task ID button
     const copyTaskIdBtn = document.getElementById('copy-task-id-btn');
     if (copyTaskIdBtn) {
@@ -850,6 +832,7 @@ function tasksEqual(oldTasks, newTasks) {
             oldTask.test_status !== newTask.test_status ||
             oldTask.test_file !== newTask.test_file ||
             oldTask.test_func !== newTask.test_func ||
+            oldTask.requires_test !== newTask.requires_test ||
             oldTask.acceptance_criteria !== newTask.acceptance_criteria) {
             return false;
         }
@@ -1078,10 +1061,12 @@ function renderTasks() {
  */
 function updateTaskCard(card, task) {
     const hasTest = taskHasTest(task);
+    const requiresTest = task.requires_test || false;
     const priorityClass = `priority-${task.priority || 'medium'}`;
 
     // Update priority class if changed
-    const expectedClasses = `task-card ${priorityClass}` + (hasTest ? '' : ' no-test');
+    // Apply no-test class only if task doesn't require a test
+    const expectedClasses = `task-card ${priorityClass}` + (!requiresTest ? ' no-test' : '');
     if (card.className !== expectedClasses) {
         card.className = expectedClasses;
     }
@@ -1123,14 +1108,22 @@ function updateTaskCard(card, task) {
         const statusText = formatStatus(task.test_status);
 
         if (existingMeta) {
-            // Update existing meta
-            const testEl = existingMeta.querySelector('.task-test');
-            if (testEl && testEl.textContent !== testText) {
-                testEl.textContent = testText;
+            // Update existing meta - ensure it has the right structure
+            let testEl = existingMeta.querySelector('.task-test');
+            if (testEl) {
+                // Remove no-test-configured class if it was there
+                testEl.classList.remove('no-test-configured');
+                if (testEl.textContent !== testText) {
+                    testEl.textContent = testText;
+                }
             }
 
-            const statusEl = existingMeta.querySelector('.task-status');
-            if (statusEl) {
+            let statusEl = existingMeta.querySelector('.task-status');
+            if (!statusEl) {
+                // Add status element if it was missing (e.g., was "No test specified" before)
+                existingMeta.insertAdjacentHTML('beforeend',
+                    `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`);
+            } else {
                 if (statusEl.textContent !== statusText) {
                     statusEl.textContent = statusText;
                 }
@@ -1165,8 +1158,35 @@ function updateTaskCard(card, task) {
                 }
             }
         }
+    } else if (requiresTest) {
+        // Task requires test but none configured - show placeholder
+        if (existingMeta) {
+            // Update existing meta to show "No test specified"
+            const testEl = existingMeta.querySelector('.task-test');
+            if (testEl) {
+                testEl.classList.add('no-test-configured');
+                testEl.textContent = 'No test specified';
+            }
+            // Remove status badge
+            const statusEl = existingMeta.querySelector('.task-status');
+            if (statusEl) {
+                statusEl.remove();
+            }
+        } else {
+            // Add meta section with placeholder
+            const metaHtml = `<div class="task-meta">
+                <span class="task-test no-test-configured">No test specified</span>
+            </div>`;
+            card.insertAdjacentHTML('beforeend', metaHtml);
+        }
+
+        // Remove play button since no test is configured
+        const actionsContainer = card.querySelector('.task-actions');
+        if (actionsContainer) {
+            actionsContainer.remove();
+        }
     } else {
-        // Remove meta and play button if task no longer has test
+        // Task doesn't require test - remove meta and play button
         if (existingMeta) {
             existingMeta.remove();
         }
@@ -1188,25 +1208,34 @@ function taskHasTest(task) {
 function createTaskCard(task) {
     const card = document.createElement('div');
     const hasTest = taskHasTest(task);
+    const requiresTest = task.requires_test || false;
     const priorityClass = `priority-${task.priority || 'medium'}`;
-    card.className = `task-card ${priorityClass}` + (hasTest ? '' : ' no-test');
+    // Apply no-test class only if task doesn't require a test
+    card.className = `task-card ${priorityClass}` + (!requiresTest ? ' no-test' : '');
     card.draggable = true;
     card.dataset.id = task.id;
 
-    // Build actions HTML - only include play button if task has a test
+    // Build actions HTML - only include play button if task has a test configured
     const actionsHtml = hasTest
         ? `<div class="task-actions">
                <button class="play-btn" title="Run Test">&#9658;</button>
            </div>`
         : '';
 
-    // Build meta HTML - only include test info if task has a test
-    const metaHtml = hasTest
-        ? `<div class="task-meta">
+    // Build meta HTML based on test requirements
+    let metaHtml = '';
+    if (hasTest) {
+        // Task has test configured - show full test info with status
+        metaHtml = `<div class="task-meta">
                <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
                <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
-           </div>`
-        : '';
+           </div>`;
+    } else if (requiresTest) {
+        // Task requires test but none configured - show placeholder
+        metaHtml = `<div class="task-meta">
+               <span class="task-test no-test-configured">No test specified</span>
+           </div>`;
+    }
 
     // Build criteria icon - show clipboard if task has acceptance criteria
     const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
@@ -1285,95 +1314,6 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
-
-// ============================================
-// Test Name Generation
-// ============================================
-
-/**
- * Convert a title to a snake_case test file name
- * e.g., "User Login" -> "user_login_test.go"
- */
-function titleToTestFile(title) {
-    if (!title || !title.trim()) return '';
-    return title
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '') // Remove special characters
-        .replace(/\s+/g, '_')        // Replace spaces with underscores
-        + '_test.go';
-}
-
-/**
- * Convert a title to a PascalCase test function name
- * e.g., "User Login" -> "TestUserLogin"
- */
-function titleToTestFunc(title) {
-    if (!title || !title.trim()) return '';
-    const pascalCase = title
-        .trim()
-        .replace(/[^a-zA-Z0-9\s]/g, '') // Remove special characters
-        .split(/\s+/)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-        .join('');
-    return 'Test' + pascalCase;
-}
-
-/**
- * Update test file and function inputs based on title
- */
-function updateTestNamesFromTitle() {
-    const titleInput = document.getElementById('title');
-    const testFileInput = document.getElementById('test_file');
-    const testFuncInput = document.getElementById('test_func');
-
-    if (!autoGenerateCheckbox || !autoGenerateCheckbox.checked) return;
-
-    const title = titleInput.value;
-    testFileInput.value = titleToTestFile(title);
-    testFuncInput.value = titleToTestFunc(title);
-}
-
-/**
- * Toggle auto-generate mode for test names
- */
-function toggleAutoGenerate() {
-    const testFileInput = document.getElementById('test_file');
-    const testFuncInput = document.getElementById('test_func');
-    const isAutoGenerate = autoGenerateCheckbox.checked;
-
-    testFileInput.readOnly = isAutoGenerate;
-    testFuncInput.readOnly = isAutoGenerate;
-
-    if (testConfigHint) {
-        testConfigHint.textContent = isAutoGenerate
-            ? 'Test names will be generated from the task title.'
-            : 'Specify an existing test file and function to link.';
-    }
-
-    if (isAutoGenerate) {
-        updateTestNamesFromTitle();
-    }
-}
-
-/**
- * Toggle advanced section based on generate test file checkbox
- */
-function toggleAdvancedSection() {
-    if (!advancedDetails) return;
-
-    const isEnabled = generateTestFileCheckbox && generateTestFileCheckbox.checked;
-
-    if (isEnabled) {
-        advancedDetails.classList.remove('advanced-disabled');
-        advancedDetails.removeAttribute('inert');
-    } else {
-        advancedDetails.classList.add('advanced-disabled');
-        advancedDetails.setAttribute('inert', '');
-        // Collapse the section when disabled
-        advancedDetails.removeAttribute('open');
-    }
 }
 
 // ============================================
@@ -1517,13 +1457,6 @@ function openNewTaskModal() {
     }
 
     const titleInput = document.getElementById('title');
-    const testFileInput = document.getElementById('test_file');
-    const testFuncInput = document.getElementById('test_func');
-
-    // Reset advanced section to collapsed
-    if (advancedDetails) {
-        advancedDetails.removeAttribute('open');
-    }
 
     // Reset form
     taskForm.reset();
@@ -1531,20 +1464,10 @@ function openNewTaskModal() {
     // Default to medium priority
     taskForm.querySelector('input[name="priority"][value="medium"]').checked = true;
 
-    // Enable auto-generate by default for new tasks
-    if (autoGenerateCheckbox) {
-        autoGenerateCheckbox.checked = true;
-        toggleAutoGenerate();
+    // Default requires_test to unchecked for new tasks
+    if (requiresTestCheckbox) {
+        requiresTestCheckbox.checked = false;
     }
-
-    // Show and enable generate test file checkbox for new tasks
-    if (generateTestFileCheckbox) {
-        generateTestFileCheckbox.closest('.flex').style.display = 'flex';
-        generateTestFileCheckbox.checked = true;
-    }
-
-    // Enable advanced section for new tasks (since generate test file is checked)
-    toggleAdvancedSection();
 
     taskModal.showModal();
     titleInput.focus();
@@ -1667,6 +1590,7 @@ function openTaskPanel(task) {
     if (testFileInput) testFileInput.value = task.test_file || '';
     if (testFuncInput) testFuncInput.value = task.test_func || '';
     if (taskIdEl) taskIdEl.textContent = task.id;
+    if (panelRequiresTestCheckbox) panelRequiresTestCheckbox.checked = task.requires_test || false;
 
     // Ensure title is in display mode (not edit mode)
     hideTitleEditMode();
@@ -1681,10 +1605,10 @@ function openTaskPanel(task) {
         detailsSection.setAttribute('open', '');
     }
 
-    // Expand advanced section only if task has test configuration
+    // Expand advanced section only if task requires test or has test configuration
     const advancedSection = document.getElementById('panel-advanced-section');
     if (advancedSection) {
-        if (task.test_file && task.test_func) {
+        if (task.requires_test || (task.test_file && task.test_func)) {
             advancedSection.setAttribute('open', '');
         } else {
             advancedSection.removeAttribute('open');
@@ -1699,6 +1623,7 @@ function openTaskPanel(task) {
         title: task.title || '',
         acceptance_criteria: task.acceptance_criteria || '',
         priority: task.priority || 'medium',
+        requires_test: task.requires_test || false,
         test_file: task.test_file || '',
         test_func: task.test_func || ''
     };
@@ -1746,6 +1671,7 @@ function getPanelFormValues() {
         title: titleEl?.textContent || '',
         acceptance_criteria: criteriaInput?.value || '',
         priority: priorityRadio?.value || 'medium',
+        requires_test: panelRequiresTestCheckbox?.checked || false,
         test_file: testFileInput?.value || '',
         test_func: testFuncInput?.value || ''
     };
@@ -1762,6 +1688,7 @@ function panelHasChanges() {
     return current.title !== panelOriginalValues.title ||
            current.acceptance_criteria !== panelOriginalValues.acceptance_criteria ||
            current.priority !== panelOriginalValues.priority ||
+           current.requires_test !== panelOriginalValues.requires_test ||
            current.test_file !== panelOriginalValues.test_file ||
            current.test_func !== panelOriginalValues.test_func;
 }
@@ -1924,6 +1851,7 @@ async function handlePanelFormSubmit(e) {
         title: title,
         acceptance_criteria: formData.get('acceptance_criteria'),
         priority: formData.get('panel-priority'),
+        requires_test: panelRequiresTestCheckbox?.checked || false,
         test_file: formData.get('test_file'),
         test_func: formData.get('test_func')
     };
@@ -2037,6 +1965,7 @@ function initTaskPanel() {
     priorityRadios?.forEach(radio => {
         radio.addEventListener('change', updatePanelSaveButton);
     });
+    panelRequiresTestCheckbox?.addEventListener('change', updatePanelSaveButton);
     testFileInput?.addEventListener('input', updatePanelSaveButton);
     testFuncInput?.addEventListener('input', updatePanelSaveButton);
 }
@@ -2052,23 +1981,9 @@ async function handleFormSubmit(e) {
     const data = {
         title: formData.get('title'),
         acceptance_criteria: formData.get('acceptance_criteria'),
-        priority: formData.get('priority')
+        priority: formData.get('priority'),
+        requires_test: requiresTestCheckbox ? requiresTestCheckbox.checked : false
     };
-
-    // Include test file/function if "Generate test file" is checked
-    const testFile = formData.get('test_file');
-    const testFunc = formData.get('test_func');
-    const shouldIncludeTestInfo = generateTestFileCheckbox && generateTestFileCheckbox.checked;
-
-    if (shouldIncludeTestInfo && testFile && testFunc) {
-        data.test_file = testFile;
-        data.test_func = testFunc;
-    }
-
-    // Include generate_test_file flag
-    if (generateTestFileCheckbox) {
-        data.generate_test_file = generateTestFileCheckbox.checked;
-    }
 
     try {
         await createTask(data);

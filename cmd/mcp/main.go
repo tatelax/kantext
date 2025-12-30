@@ -32,8 +32,6 @@ func main() {
 	// Configuration from config file
 	workDir := cfg.WorkingDirectory
 	tasksFile := cfg.TasksFile()
-	testsDir := cfg.TestsDir()
-	testsRelative := "tests" // Relative path for TestRunner (go test command)
 
 	// Check if tasks file exists, create if not
 	if _, err := os.Stat(tasksFile); os.IsNotExist(err) {
@@ -52,9 +50,8 @@ func main() {
 	}
 
 	// Initialize services
-	testGen := services.NewTestGenerator(testsDir)         // Uses absolute path to create files
-	taskStore := services.NewTaskStore(tasksFile, testGen)
-	testRunner := services.NewTestRunner(testsRelative, workDir) // Uses relative path for go test command
+	taskStore := services.NewTaskStore(tasksFile)
+	testRunner := services.NewTestRunner(workDir)
 
 	// Initialize tool handler
 	toolHandler := mcp.NewToolHandler(taskStore, testRunner)

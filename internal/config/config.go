@@ -59,8 +59,3 @@ func (c *Config) TasksFile() string {
 	}
 	return filepath.Join(c.WorkingDirectory, fileName)
 }
-
-// TestsDir returns the path to the tests directory
-func (c *Config) TestsDir() string {
-	return filepath.Join(c.WorkingDirectory, "tests")
-}

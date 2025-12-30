@@ -50,7 +50,7 @@ func (h *ToolHandler) GetTools() []Tool {
 		},
 		{
 			Name:        "create_task",
-			Description: "Create a new TDD task. By default, a Go test file is auto-generated. Optionally specify an existing test file and function to associate with the task.",
+			Description: "Create a new task. Optionally specify if a passing test is required for completion.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -60,22 +60,56 @@ func (h *ToolHandler) GetTools() []Tool {
 					},
 					"acceptance_criteria": {
 						Type:        "string",
-						Description: "Clear criteria that define when this task is complete. What should the test verify?",
+						Description: "Clear criteria that define when this task is complete.",
 					},
 					"priority": {
 						Type:        "string",
 						Description: "Task priority: 'high', 'medium', or 'low'. Defaults to 'medium' if not specified.",
 					},
-					"test_file": {
-						Type:        "string",
-						Description: "Optional: Name of an existing test file (e.g., 'auth_test.go'). If not specified, a new test file will be generated.",
-					},
-					"test_func": {
-						Type:        "string",
-						Description: "Optional: Name of an existing test function (e.g., 'TestLogin'). Required if test_file is specified.",
+					"requires_test": {
+						Type:        "boolean",
+						Description: "Whether a passing test is required to complete this task. Defaults to false.",
 					},
 				},
 				Required: []string{"title"},
+			},
+		},
+		{
+			Name:        "update_task",
+			Description: "Update an existing task's properties including test configuration. Use this to set the test file and function after task creation.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"task_id": {
+						Type:        "string",
+						Description: "The unique ID of the task to update",
+					},
+					"title": {
+						Type:        "string",
+						Description: "New title for the task",
+					},
+					"acceptance_criteria": {
+						Type:        "string",
+						Description: "New acceptance criteria for the task",
+					},
+					"priority": {
+						Type:        "string",
+						Description: "Task priority: 'high', 'medium', or 'low'",
+					},
+					"requires_test": {
+						Type:        "boolean",
+						Description: "Whether a passing test is required to complete this task",
+					},
+					"test_file": {
+						Type:        "string",
+						Description: "Path to test file relative to working directory (e.g., 'internal/auth/auth_test.go')",
+					},
+					"test_func": {
+						Type:        "string",
+						Description: "Test function name (e.g., 'TestLogin')",
+					},
+				},
+				Required: []string{"task_id"},
 			},
 		},
 		{
@@ -144,6 +178,8 @@ func (h *ToolHandler) CallTool(name string, args map[string]interface{}) ToolRes
 		return h.getTask(args)
 	case "create_task":
 		return h.createTask(args)
+	case "update_task":
+		return h.updateTask(args)
 	case "run_test":
 		return h.runTest(args)
 	case "move_task":
@@ -216,7 +252,12 @@ func formatTask(t *models.Task) string {
 		priorityEmoji = "[LOW]"
 	}
 
-	// Build output based on whether task has a test
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("- [%s] %s %s\n", statusCheckbox(t.TestStatus), priorityEmoji, t.Title))
+	sb.WriteString(fmt.Sprintf("  ID: %s\n", t.ID))
+	sb.WriteString(fmt.Sprintf("  Priority: %s\n", t.Priority))
+	sb.WriteString(fmt.Sprintf("  Requires Test: %t\n", t.RequiresTest))
+
 	if t.HasTest() {
 		status := string(t.TestStatus)
 		if t.TestStatus == models.TestStatusPassed {
@@ -224,28 +265,15 @@ func formatTask(t *models.Task) string {
 		} else if t.TestStatus == models.TestStatusFailed {
 			status = "FAILED"
 		}
-
-		return fmt.Sprintf("- [%s] %s %s\n  ID: %s\n  Priority: %s\n  Test: %s:%s\n  Status: %s\n  Acceptance Criteria: %s\n",
-			statusCheckbox(t.TestStatus),
-			priorityEmoji,
-			t.Title,
-			t.ID,
-			t.Priority,
-			t.TestFile,
-			t.TestFunc,
-			status,
-			t.AcceptanceCriteria,
-		)
+		sb.WriteString(fmt.Sprintf("  Test: %s:%s\n", t.TestFile, t.TestFunc))
+		sb.WriteString(fmt.Sprintf("  Status: %s\n", status))
 	}
 
-	// Task without test - simpler format
-	return fmt.Sprintf("- [ ] %s %s\n  ID: %s\n  Priority: %s\n  Acceptance Criteria: %s\n",
-		priorityEmoji,
-		t.Title,
-		t.ID,
-		t.Priority,
-		t.AcceptanceCriteria,
-	)
+	if t.AcceptanceCriteria != "" {
+		sb.WriteString(fmt.Sprintf("  Acceptance Criteria: %s\n", t.AcceptanceCriteria))
+	}
+
+	return sb.String()
 }
 
 func statusCheckbox(status models.TestStatus) string {
@@ -277,6 +305,7 @@ func (h *ToolHandler) getTask(args map[string]interface{}) ToolResult {
 	sb.WriteString(fmt.Sprintf("**ID:** %s\n", task.ID))
 	sb.WriteString(fmt.Sprintf("**Priority:** %s\n", task.Priority))
 	sb.WriteString(fmt.Sprintf("**Column:** %s\n", task.Column))
+	sb.WriteString(fmt.Sprintf("**Requires Test:** %t\n", task.RequiresTest))
 
 	// Only show test info if task has a test
 	if task.HasTest() {
@@ -284,7 +313,9 @@ func (h *ToolHandler) getTask(args map[string]interface{}) ToolResult {
 		sb.WriteString(fmt.Sprintf("**Status:** %s\n", task.TestStatus))
 	}
 
-	sb.WriteString(fmt.Sprintf("**Acceptance Criteria:** %s\n", task.AcceptanceCriteria))
+	if task.AcceptanceCriteria != "" {
+		sb.WriteString(fmt.Sprintf("**Acceptance Criteria:** %s\n", task.AcceptanceCriteria))
+	}
 
 	if task.HasTest() && task.LastOutput != "" {
 		sb.WriteString(fmt.Sprintf("\n## Last Test Output\n```\n%s\n```\n", task.LastOutput))
@@ -299,8 +330,7 @@ func (h *ToolHandler) createTask(args map[string]interface{}) ToolResult {
 	title, _ := args["title"].(string)
 	acceptanceCriteria, _ := args["acceptance_criteria"].(string)
 	priorityStr, _ := args["priority"].(string)
-	testFile, _ := args["test_file"].(string)
-	testFunc, _ := args["test_func"].(string)
+	requiresTest, hasRequiresTest := args["requires_test"].(bool)
 
 	if title == "" {
 		return ToolResult{
@@ -325,12 +355,17 @@ func (h *ToolHandler) createTask(args map[string]interface{}) ToolResult {
 		}
 	}
 
+	// Set requires_test if provided
+	var requiresTestPtr *bool
+	if hasRequiresTest {
+		requiresTestPtr = &requiresTest
+	}
+
 	req := models.CreateTaskRequest{
 		Title:              title,
 		AcceptanceCriteria: acceptanceCriteria,
 		Priority:           priority,
-		TestFile:           testFile,
-		TestFunc:           testFunc,
+		RequiresTest:       requiresTestPtr,
 	}
 
 	task, err := h.store.Create(req)
@@ -341,37 +376,29 @@ func (h *ToolHandler) createTask(args map[string]interface{}) ToolResult {
 		}
 	}
 
-	// Different message based on whether test was auto-generated or specified
 	var message string
-	if testFile != "" && testFunc != "" {
+	if task.RequiresTest {
 		message = fmt.Sprintf(`Task created successfully!
 
 **ID:** %s
 **Title:** %s
 **Priority:** %s
-**Test File:** %s
-**Test Function:** %s
+**Requires Test:** Yes
 
-The task is linked to an existing test.
-Run the test with run_test to check if it passes.`,
-			task.ID, task.Title, task.Priority, task.TestFile, task.TestFunc)
+The task requires a passing test to be marked as complete.
+Use update_task to configure the test file and function, then run_test to verify.`,
+			task.ID, task.Title, task.Priority)
 	} else {
 		message = fmt.Sprintf(`Task created successfully!
 
 **ID:** %s
 **Title:** %s
 **Priority:** %s
-**Test File:** %s
-**Test Function:** %s
+**Requires Test:** No
 
-A failing test has been generated at tests/%s.
 The task has been added to the 'todo' column.
-
-Next steps:
-1. Implement the feature to make the test pass
-2. Run the test with run_test to verify completion
-3. The task will auto-move to 'done' when the test passes`,
-			task.ID, task.Title, task.Priority, task.TestFile, task.TestFunc, task.TestFile)
+It can be moved to 'done' at any time without requiring a test.`,
+			task.ID, task.Title, task.Priority)
 	}
 
 	return ToolResult{
@@ -379,6 +406,74 @@ Next steps:
 			Type: "text",
 			Text: message,
 		}},
+	}
+}
+
+func (h *ToolHandler) updateTask(args map[string]interface{}) ToolResult {
+	taskID, ok := args["task_id"].(string)
+	if !ok || taskID == "" {
+		return ToolResult{
+			Content: []ContentBlock{{Type: "text", Text: "task_id is required"}},
+			IsError: true,
+		}
+	}
+
+	// Build update request with only provided fields
+	req := models.UpdateTaskRequest{}
+
+	if title, ok := args["title"].(string); ok && title != "" {
+		req.Title = &title
+	}
+	if criteria, ok := args["acceptance_criteria"].(string); ok {
+		req.AcceptanceCriteria = &criteria
+	}
+	if priorityStr, ok := args["priority"].(string); ok && priorityStr != "" {
+		var priority models.Priority
+		switch priorityStr {
+		case "high":
+			priority = models.PriorityHigh
+		case "low":
+			priority = models.PriorityLow
+		case "medium":
+			priority = models.PriorityMedium
+		default:
+			return ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: "priority must be 'high', 'medium', or 'low'"}},
+				IsError: true,
+			}
+		}
+		req.Priority = &priority
+	}
+	if requiresTest, ok := args["requires_test"].(bool); ok {
+		req.RequiresTest = &requiresTest
+	}
+	if testFile, ok := args["test_file"].(string); ok {
+		req.TestFile = &testFile
+	}
+	if testFunc, ok := args["test_func"].(string); ok {
+		req.TestFunc = &testFunc
+	}
+
+	task, err := h.store.Update(taskID, req)
+	if err != nil {
+		return ToolResult{
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to update task: %v", err)}},
+			IsError: true,
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Task updated successfully!\n\n")
+	sb.WriteString(fmt.Sprintf("**ID:** %s\n", task.ID))
+	sb.WriteString(fmt.Sprintf("**Title:** %s\n", task.Title))
+	sb.WriteString(fmt.Sprintf("**Priority:** %s\n", task.Priority))
+	sb.WriteString(fmt.Sprintf("**Requires Test:** %t\n", task.RequiresTest))
+	if task.HasTest() {
+		sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.TestFile, task.TestFunc))
+	}
+
+	return ToolResult{
+		Content: []ContentBlock{{Type: "text", Text: sb.String()}},
 	}
 }
 
@@ -488,11 +583,19 @@ func (h *ToolHandler) moveTask(args map[string]interface{}) ToolResult {
 		}
 	}
 
-	// Prevent moving to "done" unless the test has passed (only for tasks with tests)
-	if column == models.ColumnDone && currentTask.HasTest() && currentTask.TestStatus != models.TestStatusPassed {
-		return ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Cannot move task to 'done': test has not passed (current status: %s). Run the test first with run_test.", currentTask.TestStatus)}},
-			IsError: true,
+	// Prevent moving to "done" if task requires a test
+	if column == models.ColumnDone && currentTask.RequiresTest {
+		if !currentTask.HasTest() {
+			return ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: "Cannot move task to 'done': task requires a test but no test is configured. Use update_task to set test_file and test_func first."}},
+				IsError: true,
+			}
+		}
+		if currentTask.TestStatus != models.TestStatusPassed {
+			return ToolResult{
+				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Cannot move task to 'done': test has not passed (current status: %s). Run the test first with run_test.", currentTask.TestStatus)}},
+				IsError: true,
+			}
 		}
 	}
 

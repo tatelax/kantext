@@ -13,26 +13,36 @@ import (
 
 // TestRunner executes Go tests
 type TestRunner struct {
-	testsDir string
-	workDir  string
+	workDir string
 }
 
 // NewTestRunner creates a new TestRunner
-func NewTestRunner(testsDir string, workDir string) *TestRunner {
+func NewTestRunner(workDir string) *TestRunner {
 	return &TestRunner{
-		testsDir: testsDir,
-		workDir:  workDir,
+		workDir: workDir,
 	}
 }
 
 // Run executes a specific test and returns the result
+// testFile should be a path relative to the working directory (e.g., "internal/auth/auth_test.go")
 func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.TestResult {
 	start := time.Now()
 
+	// Extract the directory from the test file path
+	// e.g., "internal/auth/auth_test.go" -> "internal/auth"
+	testDir := filepath.Dir(testFile)
+	if testDir == "." {
+		testDir = ""
+	}
+
 	// Build the go test command
-	// Run specific test function: go test -v -count=1 -run ^TestFuncName$ ./tests/
+	// Run specific test function: go test -v -count=1 -run ^TestFuncName$ ./path/to/dir/
 	// -count=1 disables test caching to ensure tests always run fresh
-	cmd := exec.CommandContext(ctx, "go", "test", "-v", "-count=1", "-run", "^"+testFunc+"$", "./"+r.testsDir+"/")
+	testPath := "./"
+	if testDir != "" {
+		testPath = "./" + testDir + "/"
+	}
+	cmd := exec.CommandContext(ctx, "go", "test", "-v", "-count=1", "-run", "^"+testFunc+"$", testPath)
 
 	// Set the working directory if specified
 	if r.workDir != "" {
@@ -98,13 +108,4 @@ func (r *TestRunner) RunAsync(testFile, testFunc string, callback func(models.Te
 		result := r.Run(ctx, testFile, testFunc)
 		callback(result)
 	}()
-}
-
-// GetTestsDir returns the absolute path to the tests directory
-func (r *TestRunner) GetTestsDir() string {
-	abs, err := filepath.Abs(r.testsDir)
-	if err != nil {
-		return r.testsDir
-	}
-	return abs
 }

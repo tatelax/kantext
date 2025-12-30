@@ -21,16 +21,14 @@ type TaskStore struct {
 	mu       sync.RWMutex
 	tasks    map[string]*models.Task
 	columns  []models.ColumnDefinition
-	testGen  *TestGenerator
 }
 
 // NewTaskStore creates a new TaskStore
-func NewTaskStore(filePath string, testGen *TestGenerator) *TaskStore {
+func NewTaskStore(filePath string) *TaskStore {
 	store := &TaskStore{
 		filePath: filePath,
 		tasks:    make(map[string]*models.Task),
 		columns:  []models.ColumnDefinition{},
-		testGen:  testGen,
 	}
 	store.Load()
 	return store
@@ -123,8 +121,10 @@ func (s *TaskStore) Load() error {
 					currentTask.ID = value
 				case "priority":
 					currentTask.Priority = models.Priority(value)
+				case "requires_test":
+					currentTask.RequiresTest = value == "true"
 				case "test":
-					// Parse test: file:TestFunc
+					// Parse test: path/to/file:TestFunc
 					parts := strings.SplitN(value, ":", 2)
 					if len(parts) == 2 {
 						currentTask.TestFile = parts[0]
@@ -392,6 +392,7 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 	// Write metadata as nested bullet points
 	fmt.Fprintf(file, "  - id: %s\n", task.ID)
 	fmt.Fprintf(file, "  - priority: %s\n", task.Priority)
+	fmt.Fprintf(file, "  - requires_test: %t\n", task.RequiresTest)
 
 	if task.HasTest() {
 		fmt.Fprintf(file, "  - test: %s:%s\n", task.TestFile, task.TestFunc)
@@ -652,7 +653,7 @@ func (s *TaskStore) Get(id string) (*models.Task, error) {
 	return task, nil
 }
 
-// Create adds a new task and optionally generates the test file
+// Create adds a new task
 func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -663,26 +664,8 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 		priority = models.PriorityMedium
 	}
 
-	var testFile, testFunc string
-	var err error
-
-	// Determine if we should generate test files (default: true)
-	shouldGenerateFile := req.GenerateTestFile == nil || *req.GenerateTestFile
-
-	// Use provided test file/function or generate new ones
-	if req.TestFile != "" && req.TestFunc != "" {
-		// Use existing test
-		testFile = req.TestFile
-		testFunc = req.TestFunc
-	} else if shouldGenerateFile {
-		// Generate test file on disk
-		testFile, testFunc, err = s.testGen.GenerateTestFile(req.Title, req.AcceptanceCriteria)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate test file: %w", err)
-		}
-	}
-	// If GenerateTestFile is explicitly false and no test file/func provided,
-	// the task is created without a test (testFile and testFunc remain empty)
+	// Determine requires_test (default: false)
+	requiresTest := req.RequiresTest != nil && *req.RequiresTest
 
 	// Default to first column if exists
 	column := models.Column("todo")
@@ -702,8 +685,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 		Title:              req.Title,
 		AcceptanceCriteria: req.AcceptanceCriteria,
 		Priority:           priority,
-		TestFile:           testFile,
-		TestFunc:           testFunc,
+		RequiresTest:       requiresTest,
 		Column:             column,
 		TestStatus:         models.TestStatusPending,
 		CreatedAt:          now,
@@ -716,7 +698,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 
 	// Save to file
 	s.mu.Unlock()
-	err = s.Save()
+	err := s.Save()
 	s.mu.Lock()
 
 	if err != nil {
@@ -748,6 +730,15 @@ func (s *TaskStore) Update(id string, req models.UpdateTaskRequest) (*models.Tas
 	}
 	if req.Column != nil {
 		task.Column = *req.Column
+	}
+	if req.RequiresTest != nil {
+		task.RequiresTest = *req.RequiresTest
+	}
+	if req.TestFile != nil {
+		task.TestFile = *req.TestFile
+	}
+	if req.TestFunc != nil {
+		task.TestFunc = *req.TestFunc
 	}
 
 	// Update timestamp metadata
