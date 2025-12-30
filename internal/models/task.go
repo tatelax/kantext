@@ -57,6 +57,8 @@ type Task struct {
 	RequiresTest       bool       `json:"requires_test"`       // Whether task completion requires a passing test
 	Tests              []TestSpec `json:"tests"`               // Array of test specifications
 	TestStatus         TestStatus `json:"test_status"`
+	TestsPassed        int        `json:"tests_passed"`        // Number of tests that passed in last run
+	TestsTotal         int        `json:"tests_total"`         // Total number of tests in last run
 	LastRun            *time.Time `json:"last_run,omitempty"`
 	LastOutput         string     `json:"last_output,omitempty"`
 	Order              int        `json:"-"` // Internal order tracking, not exposed to JSON

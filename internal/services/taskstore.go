@@ -145,6 +145,10 @@ func (s *TaskStore) Load() error {
 							Func: parts[1],
 						})
 					}
+				case "tests_passed":
+					fmt.Sscanf(value, "%d", &currentTask.TestsPassed)
+				case "tests_total":
+					fmt.Sscanf(value, "%d", &currentTask.TestsTotal)
 				case "criteria":
 					currentTask.AcceptanceCriteria = value
 				case "created_at":
@@ -423,6 +427,12 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 	// Write all tests
 	for _, test := range task.Tests {
 		fmt.Fprintf(file, "  - test: %s:%s\n", test.File, test.Func)
+	}
+
+	// Write test results if available
+	if task.TestsTotal > 0 {
+		fmt.Fprintf(file, "  - tests_passed: %d\n", task.TestsPassed)
+		fmt.Fprintf(file, "  - tests_total: %d\n", task.TestsTotal)
 	}
 
 	if task.AcceptanceCriteria != "" {
@@ -853,6 +863,16 @@ func (s *TaskStore) UpdateTestResults(id string, results models.TestResults) (*m
 	if !ok {
 		return nil, fmt.Errorf("task not found: %s", id)
 	}
+
+	// Calculate tests passed/total
+	passed := 0
+	for _, r := range results.Results {
+		if r.Passed {
+			passed++
+		}
+	}
+	task.TestsPassed = passed
+	task.TestsTotal = len(results.Results)
 
 	if results.AllPassed {
 		task.TestStatus = models.TestStatusPassed

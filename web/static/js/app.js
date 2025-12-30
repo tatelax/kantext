@@ -830,6 +830,8 @@ function tasksEqual(oldTasks, newTasks) {
             oldTask.column !== newTask.column ||
             oldTask.priority !== newTask.priority ||
             oldTask.test_status !== newTask.test_status ||
+            oldTask.tests_passed !== newTask.tests_passed ||
+            oldTask.tests_total !== newTask.tests_total ||
             oldTask.requires_test !== newTask.requires_test ||
             oldTask.acceptance_criteria !== newTask.acceptance_criteria ||
             oldTask.updated_at !== newTask.updated_at ||
@@ -1109,36 +1111,40 @@ function updateTaskCard(card, task) {
     const dateText = formatCardDate(task.updated_at || task.created_at);
     const author = task.updated_by || task.created_by || '';
     const authorName = getFirstName(author); // Returns "Uncommitted" if no author
-    const authorHtml = `<span class="task-author">${escapeHtml(authorName)}</span>`;
-    const authorSeparator = dateText ? '<span class="task-meta-separator">•</span>' : '';
+
+    // Icon SVGs for metadata
+    const userIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+    const calendarIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
+    const beakerIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3h15"/><path d="M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3"/><path d="M6 14h12"/></svg>`;
+
+    const authorHtml = `<span class="task-meta-item">${userIcon}<span class="task-author">${escapeHtml(authorName)}</span></span>`;
+    const dateHtml = dateText ? `<span class="task-meta-item">${calendarIcon}<span class="task-date">${escapeHtml(dateText)}</span></span>` : '';
 
     // Helper to build the new meta HTML
     const buildMetaHtml = () => {
         if (hasTest) {
             const testDisplay = getTestDisplayText(task);
-            const showStatus = task.test_status && task.test_status !== 'pending';
-            const statusHtml = showStatus
-                ? `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`
-                : '';
+            const progressHtml = createTestProgressHTML(task);
+            // Show progress indicator if tests have run, otherwise show test count with icon
+            const testInfoHtml = progressHtml
+                ? progressHtml
+                : `<span class="task-meta-item">${beakerIcon}<span class="task-test-count">${escapeHtml(testDisplay)}</span></span>`;
             return `<div class="task-meta">
-                ${authorHtml}${authorSeparator}
-                <span class="task-date">${escapeHtml(dateText)}</span>
-                <span class="task-meta-separator">•</span>
-                <span class="task-test-count">${escapeHtml(testDisplay)}</span>
-                ${statusHtml}
+                ${authorHtml}
+                ${dateHtml}
+                ${testInfoHtml}
             </div>`;
         } else if (requiresTest) {
             return `<div class="task-meta">
-                ${authorHtml}${authorSeparator}
-                <span class="task-date">${escapeHtml(dateText)}</span>
-                <span class="task-meta-separator">•</span>
-                <span class="task-test-count no-test">No test</span>
+                ${authorHtml}
+                ${dateHtml}
+                <span class="task-meta-item">${beakerIcon}<span class="task-test-count no-test">No test</span></span>
             </div>`;
         } else {
             // No test required - show author and date
             return `<div class="task-meta">
-                ${authorHtml}${authorSeparator}
-                <span class="task-date">${escapeHtml(dateText)}</span>
+                ${authorHtml}
+                ${dateHtml}
             </div>`;
         }
     };
@@ -1207,6 +1213,38 @@ function getTestDisplayText(task) {
     if (!taskHasTest(task)) return '';
     const count = task.tests.length;
     return count === 1 ? '1 test' : `${count} tests`;
+}
+
+/**
+ * Create radial progress indicator HTML for test results
+ * Shows a small circular progress ring with passed/total text
+ * Color: green if all pass, red if any fail
+ */
+function createTestProgressHTML(task) {
+    const hasRun = task.test_status && task.test_status !== 'pending';
+    if (!hasRun) return '';
+
+    const passed = task.tests_passed || 0;
+    const total = task.tests_total || task.tests?.length || 0;
+    if (total === 0) return '';
+
+    const status = task.test_status; // passed, failed, running
+    const progress = total > 0 ? passed / total : 0;
+
+    // SVG circle calculations
+    const radius = 5.5;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference * (1 - progress);
+
+    return `<span class="test-progress ${status}">
+        <svg class="test-progress-ring" viewBox="0 0 16 16">
+            <circle class="test-progress-track" cx="8" cy="8" r="${radius}"/>
+            <circle class="test-progress-bar" cx="8" cy="8" r="${radius}"
+                stroke-dasharray="${circumference}"
+                stroke-dashoffset="${offset}"/>
+        </svg>
+        <span class="test-progress-text">${passed}/${total}</span>
+    </span>`;
 }
 
 /**
@@ -1287,41 +1325,45 @@ function createTaskCard(task) {
            </div>`
         : '';
 
-    // Build meta HTML - show author, date, and optionally test info
+    // Build meta HTML - show author, date, and optionally test info with icons
     let metaHtml = '';
     const dateText = formatCardDate(task.updated_at || task.created_at);
     const author = task.updated_by || task.created_by || '';
     const authorName = getFirstName(author); // Returns "Uncommitted" if no author
-    const authorHtml = `<span class="task-author">${escapeHtml(authorName)}</span>`;
-    const authorSeparator = dateText ? '<span class="task-meta-separator">•</span>' : '';
+
+    // Icon SVGs for metadata
+    const userIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+    const calendarIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
+    const beakerIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3h15"/><path d="M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3"/><path d="M6 14h12"/></svg>`;
+
+    const authorHtml = `<span class="task-meta-item">${userIcon}<span class="task-author">${escapeHtml(authorName)}</span></span>`;
+    const dateHtml = dateText ? `<span class="task-meta-item">${calendarIcon}<span class="task-date">${escapeHtml(dateText)}</span></span>` : '';
 
     if (hasTest) {
-        // Task has test configured - show author, date, test count, and status (if run)
+        // Task has test configured - show author, date, and test progress indicator
         const testDisplay = getTestDisplayText(task);
-        const showStatus = task.test_status && task.test_status !== 'pending';
-        const statusHtml = showStatus
-            ? `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`
-            : '';
+        const progressHtml = createTestProgressHTML(task);
+        // Show progress indicator if tests have run, otherwise show test count with icon
+        const testInfoHtml = progressHtml
+            ? progressHtml
+            : `<span class="task-meta-item">${beakerIcon}<span class="task-test-count">${escapeHtml(testDisplay)}</span></span>`;
         metaHtml = `<div class="task-meta">
-               ${authorHtml}${authorSeparator}
-               <span class="task-date">${escapeHtml(dateText)}</span>
-               <span class="task-meta-separator">•</span>
-               <span class="task-test-count">${escapeHtml(testDisplay)}</span>
-               ${statusHtml}
+               ${authorHtml}
+               ${dateHtml}
+               ${testInfoHtml}
            </div>`;
     } else if (requiresTest) {
         // Task requires test but none configured - show author, date and "No test" indicator
         metaHtml = `<div class="task-meta">
-               ${authorHtml}${authorSeparator}
-               <span class="task-date">${escapeHtml(dateText)}</span>
-               <span class="task-meta-separator">•</span>
-               <span class="task-test-count no-test">No test</span>
+               ${authorHtml}
+               ${dateHtml}
+               <span class="task-meta-item">${beakerIcon}<span class="task-test-count no-test">No test</span></span>
            </div>`;
     } else {
         // No test required - show author and date
         metaHtml = `<div class="task-meta">
-               ${authorHtml}${authorSeparator}
-               <span class="task-date">${escapeHtml(dateText)}</span>
+               ${authorHtml}
+               ${dateHtml}
            </div>`;
     }
 
