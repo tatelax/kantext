@@ -39,7 +39,7 @@ func main() {
 		// Create initial tasks file
 		initialContent := `# Kantext Tasks
 
-## Todo
+## Inbox
 
 ## In Progress
 

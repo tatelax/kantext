@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=78">
+    <link rel="stylesheet" href="/static/css/styles.css?v=88">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -89,6 +89,7 @@
     <!-- Task View Panel (slides in from right) -->
     <div id="task-panel-overlay" class="task-panel-overlay"></div>
     <aside id="task-panel" class="task-panel">
+        <div id="task-panel-resize-handle" class="task-panel-resize-handle" title="Drag to resize"></div>
         <div class="task-panel-content">
             <!-- Panel Header -->
             <header class="task-panel-header">
@@ -203,7 +204,7 @@
                                     <span class="toggle-label">Requires passing test to complete</span>
                                 </label>
                             </div>
-                            <p class="text-xs text-muted-foreground">Path relative to working directory (e.g., internal/auth/auth_test.go)</p>
+                            <p id="panel-tests-helper" class="text-xs text-muted-foreground hidden">Path relative to working directory (e.g., internal/auth/auth_test.go)</p>
                         </div>
                         <div id="panel-tests-container" class="space-y-3">
                             <!-- Tests will be dynamically added here -->
@@ -339,7 +340,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=49"></script>
+    <script src="/static/js/app.js?v=54"></script>
 </body>
 </html>
 {{end}}

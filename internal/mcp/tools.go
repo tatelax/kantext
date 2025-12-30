@@ -28,7 +28,7 @@ func (h *ToolHandler) GetTools() []Tool {
 	return []Tool{
 		{
 			Name:        "list_tasks",
-			Description: "List all tasks on the Kantext board. Returns tasks organized by column (todo, in_progress, done) with their priority and test status.",
+			Description: "List all tasks on the Kantext board. Returns tasks organized by column (inbox, in_progress, done) with their priority and test status.",
 			InputSchema: InputSchema{
 				Type:       "object",
 				Properties: map[string]Property{},
@@ -138,7 +138,7 @@ func (h *ToolHandler) GetTools() []Tool {
 		},
 		{
 			Name:        "move_task",
-			Description: "Move a task to a different column (todo, in_progress, or done). Use this to manually organize tasks.",
+			Description: "Move a task to a different column (inbox, in_progress, or done). Use this to manually organize tasks.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -148,7 +148,7 @@ func (h *ToolHandler) GetTools() []Tool {
 					},
 					"column": {
 						Type:        "string",
-						Description: "Target column: 'todo', 'in_progress', or 'done'",
+						Description: "Target column: 'inbox', 'in_progress', or 'done'",
 					},
 				},
 				Required: []string{"task_id", "column"},
@@ -209,7 +209,7 @@ func (h *ToolHandler) listTasks() ToolResult {
 
 	// Organize by column
 	columns := map[string][]*models.Task{
-		"todo":        {},
+		"inbox":       {},
 		"in_progress": {},
 		"done":        {},
 	}
@@ -222,11 +222,11 @@ func (h *ToolHandler) listTasks() ToolResult {
 	var sb strings.Builder
 	sb.WriteString("# Kantext Tasks\n\n")
 
-	sb.WriteString("## Todo\n")
-	for _, t := range columns["todo"] {
+	sb.WriteString("## Inbox\n")
+	for _, t := range columns["inbox"] {
 		sb.WriteString(formatTask(t))
 	}
-	if len(columns["todo"]) == 0 {
+	if len(columns["inbox"]) == 0 {
 		sb.WriteString("(no tasks)\n")
 	}
 
@@ -421,7 +421,7 @@ Use update_task to configure the test file and function, then run_test to verify
 **Priority:** %s
 **Requires Test:** No
 
-The task has been added to the 'todo' column.
+The task has been added to the 'inbox' column.
 It can be moved to 'done' at any time without requiring a test.`,
 			task.ID, task.Title, task.Priority)
 	}
@@ -612,22 +612,22 @@ func (h *ToolHandler) moveTask(args map[string]interface{}) ToolResult {
 	columnStr, ok := args["column"].(string)
 	if !ok || columnStr == "" {
 		return ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: "column is required (todo, in_progress, or done)"}},
+			Content: []ContentBlock{{Type: "text", Text: "column is required (inbox, in_progress, or done)"}},
 			IsError: true,
 		}
 	}
 
 	var column models.Column
 	switch columnStr {
-	case "todo":
-		column = models.ColumnTodo
+	case "inbox":
+		column = models.ColumnInbox
 	case "in_progress":
 		column = models.ColumnInProgress
 	case "done":
 		column = models.ColumnDone
 	default:
 		return ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: "Invalid column. Must be 'todo', 'in_progress', or 'done'"}},
+			Content: []ContentBlock{{Type: "text", Text: "Invalid column. Must be 'inbox', 'in_progress', or 'done'"}},
 			IsError: true,
 		}
 	}

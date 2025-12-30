@@ -22,7 +22,7 @@
     --warning: hsl(45 93% 47%);
     --accent: hsl(240 4.8% 95.9%);
     --accent-foreground: hsl(240 5.9% 10%);
-    --dialog-backdrop: rgba(0, 0, 0, 0.4);
+    --dialog-backdrop: rgba(0, 0, 0, 0.05);
     --shadow-color: rgba(0, 0, 0, 0.1);
     --input-bg: hsl(0 0% 100%);
 }
@@ -44,7 +44,7 @@ html.dark {
     --warning: hsl(45 93% 47%);
     --accent: hsl(240 3.7% 15.9%);
     --accent-foreground: hsl(0 0% 98%);
-    --dialog-backdrop: rgba(0, 0, 0, 0.8);
+    --dialog-backdrop: rgba(0, 0, 0, 0.05);
     --shadow-color: rgba(0, 0, 0, 0.5);
     --input-bg: hsl(240 10% 3.9%);
 }
@@ -793,7 +793,11 @@ html.dark .task-card.no-test {
     opacity: 0.6;
 }
 
-/* Test count display */
+/* Test count display - align to right */
+.task-meta-item:has(.task-test-count) {
+    margin-left: auto;
+}
+
 .task-test-count {
     white-space: nowrap;
 }
@@ -839,6 +843,7 @@ html.dark .task-card.no-test {
     align-items: center;
     gap: 0.25rem;
     flex-shrink: 0;
+    margin-left: auto;
 }
 
 .test-progress-ring {
@@ -1404,7 +1409,7 @@ body > header {
     right: 0;
     bottom: 0;
     width: 100%;
-    max-width: 480px;
+    max-width: 552px;
     z-index: 50;
     background-color: var(--card);
     border-left: 1px solid var(--border);
@@ -1533,10 +1538,61 @@ body > header {
     box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary);
 }
 
+/* Task Panel Resize Handle */
+.task-panel-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: ew-resize;
+    background: transparent;
+    z-index: 10;
+    transition: background-color 0.15s ease;
+}
+
+.task-panel-resize-handle:hover,
+.task-panel-resize-handle.resizing {
+    background-color: var(--primary);
+}
+
+.task-panel-resize-handle::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 40px;
+    border-radius: 2px;
+    background-color: var(--muted-foreground);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.task-panel-resize-handle:hover::before,
+.task-panel-resize-handle.resizing::before {
+    opacity: 0.5;
+}
+
+/* Prevent text selection during resize */
+body.resizing-panel {
+    cursor: ew-resize !important;
+    user-select: none;
+}
+
+body.resizing-panel * {
+    cursor: ew-resize !important;
+}
+
 /* Responsive adjustments */
 @media (max-width: 520px) {
     .task-panel {
         max-width: 100%;
+    }
+
+    .task-panel-resize-handle {
+        display: none;
     }
 }
 

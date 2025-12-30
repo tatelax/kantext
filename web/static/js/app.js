@@ -1117,8 +1117,10 @@ function updateTaskCard(card, task) {
     const calendarIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
     const beakerIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3h15"/><path d="M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3"/><path d="M6 14h12"/></svg>`;
 
-    const authorHtml = `<span class="task-meta-item">${userIcon}<span class="task-author">${escapeHtml(authorName)}</span></span>`;
-    const dateHtml = dateText ? `<span class="task-meta-item">${calendarIcon}<span class="task-date">${escapeHtml(dateText)}</span></span>` : '';
+    const fullAuthor = author || 'Uncommitted';
+    const authorHtml = `<span class="task-meta-item" title="Author: ${escapeHtml(fullAuthor)}">${userIcon}<span class="task-author">${escapeHtml(authorName)}</span></span>`;
+    const fullDate = task.updated_at ? new Date(task.updated_at).toLocaleString() : (task.created_at ? new Date(task.created_at).toLocaleString() : '');
+    const dateHtml = dateText ? `<span class="task-meta-item" title="Updated: ${escapeHtml(fullDate)}">${calendarIcon}<span class="task-date">${escapeHtml(dateText)}</span></span>` : '';
 
     // Helper to build the new meta HTML
     const buildMetaHtml = () => {
@@ -1128,7 +1130,7 @@ function updateTaskCard(card, task) {
             // Show progress indicator if tests have run, otherwise show test count with icon
             const testInfoHtml = progressHtml
                 ? progressHtml
-                : `<span class="task-meta-item">${beakerIcon}<span class="task-test-count">${escapeHtml(testDisplay)}</span></span>`;
+                : `<span class="task-meta-item" title="Tests configured">${beakerIcon}<span class="task-test-count">${escapeHtml(testDisplay)}</span></span>`;
             return `<div class="task-meta">
                 ${authorHtml}
                 ${dateHtml}
@@ -1138,7 +1140,7 @@ function updateTaskCard(card, task) {
             return `<div class="task-meta">
                 ${authorHtml}
                 ${dateHtml}
-                <span class="task-meta-item">${beakerIcon}<span class="task-test-count no-test">No test</span></span>
+                <span class="task-meta-item" title="No tests configured">${beakerIcon}<span class="task-test-count no-test">No test</span></span>
             </div>`;
         } else {
             // No test required - show author and date
@@ -1236,7 +1238,13 @@ function createTestProgressHTML(task) {
     const circumference = 2 * Math.PI * radius;
     const offset = circumference * (1 - progress);
 
-    return `<span class="test-progress ${status}">
+    // Build tooltip text
+    const statusText = status === 'passed' ? 'All tests passing' :
+                       status === 'failed' ? `${total - passed} test${total - passed !== 1 ? 's' : ''} failing` :
+                       'Tests running...';
+    const tooltip = `${passed} of ${total} tests passing - ${statusText}`;
+
+    return `<span class="test-progress ${status}" title="${tooltip}">
         <svg class="test-progress-ring" viewBox="0 0 16 16">
             <circle class="test-progress-track" cx="8" cy="8" r="${radius}"/>
             <circle class="test-progress-bar" cx="8" cy="8" r="${radius}"
@@ -1291,12 +1299,34 @@ function createTestEntryHTML(test = {file: '', func: ''}, index) {
 }
 
 /**
+ * Updates the visibility of the tests helper text based on test count
+ */
+function updateTestsHelperVisibility() {
+    const container = document.getElementById('panel-tests-container');
+    const helper = document.getElementById('panel-tests-helper');
+    if (!helper) return;
+
+    const testCount = container?.querySelectorAll('.test-entry').length || 0;
+    if (testCount > 0) {
+        helper.classList.remove('hidden');
+    } else {
+        helper.classList.add('hidden');
+    }
+}
+
+/**
  * Attaches event listeners to test entry elements
  */
 function attachTestEntryListeners() {
     document.querySelectorAll('.test-entry .remove-test-btn').forEach(btn => {
         btn.onclick = (e) => {
+            const container = document.getElementById('panel-tests-container');
             e.target.closest('.test-entry').remove();
+            // Ensure container is truly empty (no whitespace) for CSS :empty selector
+            if (container && container.querySelectorAll('.test-entry').length === 0) {
+                container.innerHTML = '';
+            }
+            updateTestsHelperVisibility();
             updatePanelSaveButton();
         };
     });
@@ -1336,8 +1366,10 @@ function createTaskCard(task) {
     const calendarIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`;
     const beakerIcon = `<svg class="meta-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3h15"/><path d="M6 3v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3"/><path d="M6 14h12"/></svg>`;
 
-    const authorHtml = `<span class="task-meta-item">${userIcon}<span class="task-author">${escapeHtml(authorName)}</span></span>`;
-    const dateHtml = dateText ? `<span class="task-meta-item">${calendarIcon}<span class="task-date">${escapeHtml(dateText)}</span></span>` : '';
+    const fullAuthor = author || 'Uncommitted';
+    const authorHtml = `<span class="task-meta-item" title="Author: ${escapeHtml(fullAuthor)}">${userIcon}<span class="task-author">${escapeHtml(authorName)}</span></span>`;
+    const fullDate = task.updated_at ? new Date(task.updated_at).toLocaleString() : (task.created_at ? new Date(task.created_at).toLocaleString() : '');
+    const dateHtml = dateText ? `<span class="task-meta-item" title="Updated: ${escapeHtml(fullDate)}">${calendarIcon}<span class="task-date">${escapeHtml(dateText)}</span></span>` : '';
 
     if (hasTest) {
         // Task has test configured - show author, date, and test progress indicator
@@ -1346,7 +1378,7 @@ function createTaskCard(task) {
         // Show progress indicator if tests have run, otherwise show test count with icon
         const testInfoHtml = progressHtml
             ? progressHtml
-            : `<span class="task-meta-item">${beakerIcon}<span class="task-test-count">${escapeHtml(testDisplay)}</span></span>`;
+            : `<span class="task-meta-item" title="Tests configured">${beakerIcon}<span class="task-test-count">${escapeHtml(testDisplay)}</span></span>`;
         metaHtml = `<div class="task-meta">
                ${authorHtml}
                ${dateHtml}
@@ -1357,7 +1389,7 @@ function createTaskCard(task) {
         metaHtml = `<div class="task-meta">
                ${authorHtml}
                ${dateHtml}
-               <span class="task-meta-item">${beakerIcon}<span class="task-test-count no-test">No test</span></span>
+               <span class="task-meta-item" title="No tests configured">${beakerIcon}<span class="task-test-count no-test">No test</span></span>
            </div>`;
     } else {
         // No test required - show author and date
@@ -1756,6 +1788,7 @@ function openTaskPanel(task) {
             });
         }
         attachTestEntryListeners();
+        updateTestsHelperVisibility();
     }
 
     // Ensure title is in display mode (not edit mode)
@@ -2132,11 +2165,15 @@ function initTaskPanel() {
         const index = container.querySelectorAll('.test-entry').length;
         container.insertAdjacentHTML('beforeend', createTestEntryHTML({}, index));
         attachTestEntryListeners();
+        updateTestsHelperVisibility();
         updatePanelSaveButton();
         // Focus the new file input
         const newEntry = container.querySelector(`.test-entry[data-index="${index}"]`);
         newEntry?.querySelector('input')?.focus();
     });
+
+    // Initialize panel resize functionality
+    initPanelResize();
 }
 
 // ============================================
@@ -2548,4 +2585,89 @@ function updateTaskCounts() {
         const countEl = document.querySelector(`.task-count[data-column="${column}"]`);
         if (countEl) countEl.textContent = count;
     });
+}
+
+// ============================================
+// Panel Resize Functionality
+// ============================================
+
+const PANEL_MIN_WIDTH = 300;
+const PANEL_MAX_WIDTH_RATIO = 0.8; // 80% of viewport width
+const PANEL_WIDTH_STORAGE_KEY = 'kantext-panel-width';
+
+/**
+ * Initialize the panel resize functionality.
+ * Allows users to drag the left edge of the panel to resize it.
+ */
+function initPanelResize() {
+    const resizeHandle = document.getElementById('task-panel-resize-handle');
+    if (!resizeHandle || !taskPanel) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    // Restore saved width from localStorage
+    const savedWidth = localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
+    if (savedWidth) {
+        const width = parseInt(savedWidth, 10);
+        if (width >= PANEL_MIN_WIDTH) {
+            taskPanel.style.maxWidth = `${width}px`;
+        }
+    }
+
+    function startResize(e) {
+        e.preventDefault();
+        isResizing = true;
+        startX = e.clientX || e.touches?.[0]?.clientX || 0;
+        startWidth = taskPanel.offsetWidth;
+
+        resizeHandle.classList.add('resizing');
+        document.body.classList.add('resizing-panel');
+
+        document.addEventListener('mousemove', resize);
+        document.addEventListener('mouseup', stopResize);
+        document.addEventListener('touchmove', resize, { passive: false });
+        document.addEventListener('touchend', stopResize);
+    }
+
+    function resize(e) {
+        if (!isResizing) return;
+        e.preventDefault();
+
+        const clientX = e.clientX || e.touches?.[0]?.clientX || 0;
+        const deltaX = startX - clientX; // Negative because panel is on the right
+        const newWidth = startWidth + deltaX;
+
+        // Calculate max width based on viewport
+        const maxWidth = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
+
+        // Clamp the width between min and max
+        const clampedWidth = Math.max(PANEL_MIN_WIDTH, Math.min(maxWidth, newWidth));
+
+        taskPanel.style.maxWidth = `${clampedWidth}px`;
+    }
+
+    function stopResize() {
+        if (!isResizing) return;
+        isResizing = false;
+
+        resizeHandle.classList.remove('resizing');
+        document.body.classList.remove('resizing-panel');
+
+        document.removeEventListener('mousemove', resize);
+        document.removeEventListener('mouseup', stopResize);
+        document.removeEventListener('touchmove', resize);
+        document.removeEventListener('touchend', stopResize);
+
+        // Save the width to localStorage
+        const currentWidth = taskPanel.offsetWidth;
+        localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, currentWidth.toString());
+    }
+
+    // Mouse events
+    resizeHandle.addEventListener('mousedown', startResize);
+
+    // Touch events for mobile
+    resizeHandle.addEventListener('touchstart', startResize, { passive: false });
 }

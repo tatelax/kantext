@@ -222,7 +222,7 @@ func (s *TaskStore) Load() error {
 	// If no columns were found, create defaults
 	if len(s.columns) == 0 {
 		s.columns = []models.ColumnDefinition{
-			{Slug: "todo", Name: "Todo", Order: 0},
+			{Slug: "inbox", Name: "Inbox", Order: 0},
 			{Slug: "in_progress", Name: "In Progress", Order: 1},
 			{Slug: "done", Name: "Done", Order: 2},
 		}
@@ -456,7 +456,7 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 
 func (s *TaskStore) createInitialFile() error {
 	s.columns = []models.ColumnDefinition{
-		{Slug: "todo", Name: "Todo", Order: 0},
+		{Slug: "inbox", Name: "Inbox", Order: 0},
 		{Slug: "in_progress", Name: "In Progress", Order: 1},
 		{Slug: "done", Name: "Done", Order: 2},
 	}
@@ -469,7 +469,7 @@ func (s *TaskStore) createInitialFile() error {
 
 	content := `# Kantext Tasks
 
-## Todo
+## Inbox
 
 ## In Progress
 
@@ -708,7 +708,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 	requiresTest := req.RequiresTest != nil && *req.RequiresTest
 
 	// Default to first column if exists
-	column := models.Column("todo")
+	column := models.Column("inbox")
 	if len(s.columns) > 0 {
 		// Sort by order and get first
 		sorted := make([]models.ColumnDefinition, len(s.columns))

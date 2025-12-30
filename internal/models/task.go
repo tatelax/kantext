@@ -9,7 +9,7 @@ import (
 type Column string
 
 const (
-	ColumnTodo       Column = "todo"
+	ColumnInbox      Column = "inbox"
 	ColumnInProgress Column = "in_progress"
 	ColumnDone       Column = "done"
 )
