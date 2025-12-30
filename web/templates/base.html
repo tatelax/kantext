@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=61">
+    <link rel="stylesheet" href="/static/css/styles.css?v=68">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -163,14 +163,9 @@
                 <input type="hidden" id="panel-task-id-input" name="id">
 
                 <!-- Task Details Section -->
-                <details id="panel-details-section" class="panel-section" open>
-                    <summary class="panel-section-header">
-                        <svg class="w-4 h-4 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                        <span>Task Details</span>
-                    </summary>
-                    <div class="panel-section-content">
+                <div id="panel-details-section" class="panel-section-simple">
+                    <h3 class="panel-section-title">Task Details</h3>
+                    <div class="panel-section-body">
                         <div class="space-y-2">
                             <label for="panel-criteria-input" class="text-sm font-medium text-foreground">Acceptance Criteria</label>
                             <textarea id="panel-criteria-input" name="acceptance_criteria" class="input-field min-h-[180px] resize-y" placeholder="What should the test verify? When is this task complete?"></textarea>
@@ -194,17 +189,12 @@
                             </div>
                         </div>
                     </div>
-                </details>
+                </div>
 
-                <!-- Advanced Section -->
-                <details id="panel-advanced-section" class="panel-section">
-                    <summary class="panel-section-header">
-                        <svg class="w-4 h-4 transition-transform details-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                        <span>Test Configuration</span>
-                    </summary>
-                    <div class="panel-section-content">
+                <!-- Test Configuration Section -->
+                <div id="panel-advanced-section" class="panel-section-simple">
+                    <h3 class="panel-section-title">Test Configuration</h3>
+                    <div class="panel-section-body">
                         <div class="space-y-2 mb-4">
                             <div class="flex items-center gap-2">
                                 <label class="toggle-switch">
@@ -215,18 +205,18 @@
                             </div>
                             <p class="text-xs text-muted-foreground">Path relative to working directory (e.g., internal/auth/auth_test.go)</p>
                         </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="space-y-2">
-                                <label for="panel-test-file" class="text-sm font-medium text-foreground">Test File</label>
-                                <input type="text" id="panel-test-file" name="test_file" class="input-field" placeholder="e.g., internal/auth/auth_test.go">
-                            </div>
-                            <div class="space-y-2">
-                                <label for="panel-test-func" class="text-sm font-medium text-foreground">Test Function</label>
-                                <input type="text" id="panel-test-func" name="test_func" class="input-field" placeholder="e.g., TestLogin">
-                            </div>
+                        <div id="panel-tests-container" class="space-y-3">
+                            <!-- Tests will be dynamically added here -->
                         </div>
+                        <button type="button" id="panel-add-test-btn" class="btn-secondary mt-3 w-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            Add Test
+                        </button>
                     </div>
-                </details>
+                </div>
             </form>
 
             <!-- Panel Footer -->
@@ -281,7 +271,6 @@
                         <input type="checkbox" id="requires_test" name="requires_test">
                         <span class="toggle-track"></span>
                         <span class="toggle-label">Requires passing test to complete</span>
-                        <span class="toggle-hint">Configure test file in Edit panel after creation</span>
                     </label>
                 </div>
 
@@ -350,7 +339,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=37"></script>
+    <script src="/static/js/app.js?v=41"></script>
 </body>
 </html>
 {{end}}

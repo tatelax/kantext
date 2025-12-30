@@ -76,7 +76,7 @@ func (h *ToolHandler) GetTools() []Tool {
 		},
 		{
 			Name:        "update_task",
-			Description: "Update an existing task's properties including test configuration. Use this to set the test file and function after task creation.",
+			Description: "Update an existing task's properties including test configuration. Use this to set the tests array after task creation.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -100,13 +100,23 @@ func (h *ToolHandler) GetTools() []Tool {
 						Type:        "boolean",
 						Description: "Whether a passing test is required to complete this task",
 					},
-					"test_file": {
-						Type:        "string",
-						Description: "Path to test file relative to working directory (e.g., 'internal/auth/auth_test.go')",
-					},
-					"test_func": {
-						Type:        "string",
-						Description: "Test function name (e.g., 'TestLogin')",
+					"tests": {
+						Type:        "array",
+						Description: "Array of test specifications. Each test has 'file' (path relative to working directory) and 'func' (test function name)",
+						Items: &PropertyItems{
+							Type: "object",
+							Properties: map[string]Property{
+								"file": {
+									Type:        "string",
+									Description: "Path to test file relative to working directory (e.g., 'internal/auth/auth_test.go')",
+								},
+								"func": {
+									Type:        "string",
+									Description: "Test function name (e.g., 'TestLogin')",
+								},
+							},
+							Required: []string{"file", "func"},
+						},
 					},
 				},
 				Required: []string{"task_id"},
@@ -114,13 +124,13 @@ func (h *ToolHandler) GetTools() []Tool {
 		},
 		{
 			Name:        "run_test",
-			Description: "Run the Go test associated with a task. If the test passes, the task is automatically moved to the 'done' column. Returns the test output and pass/fail status.",
+			Description: "Run all Go tests associated with a task. All tests must pass for the task to be automatically moved to the 'done' column. Returns the test output and pass/fail status for each test.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
 					"task_id": {
 						Type:        "string",
-						Description: "The unique ID of the task whose test should be run",
+						Description: "The unique ID of the task whose tests should be run",
 					},
 				},
 				Required: []string{"task_id"},
@@ -265,7 +275,15 @@ func formatTask(t *models.Task) string {
 		} else if t.TestStatus == models.TestStatusFailed {
 			status = "FAILED"
 		}
-		sb.WriteString(fmt.Sprintf("  Test: %s:%s\n", t.TestFile, t.TestFunc))
+		// Display all tests
+		if len(t.Tests) == 1 {
+			sb.WriteString(fmt.Sprintf("  Test: %s:%s\n", t.Tests[0].File, t.Tests[0].Func))
+		} else {
+			sb.WriteString("  Tests:\n")
+			for _, test := range t.Tests {
+				sb.WriteString(fmt.Sprintf("    - %s:%s\n", test.File, test.Func))
+			}
+		}
 		sb.WriteString(fmt.Sprintf("  Status: %s\n", status))
 	}
 
@@ -307,9 +325,16 @@ func (h *ToolHandler) getTask(args map[string]interface{}) ToolResult {
 	sb.WriteString(fmt.Sprintf("**Column:** %s\n", task.Column))
 	sb.WriteString(fmt.Sprintf("**Requires Test:** %t\n", task.RequiresTest))
 
-	// Only show test info if task has a test
+	// Only show test info if task has tests
 	if task.HasTest() {
-		sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.TestFile, task.TestFunc))
+		if len(task.Tests) == 1 {
+			sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.Tests[0].File, task.Tests[0].Func))
+		} else {
+			sb.WriteString("**Tests:**\n")
+			for _, test := range task.Tests {
+				sb.WriteString(fmt.Sprintf("  - %s:%s\n", test.File, test.Func))
+			}
+		}
 		sb.WriteString(fmt.Sprintf("**Status:** %s\n", task.TestStatus))
 	}
 
@@ -447,11 +472,21 @@ func (h *ToolHandler) updateTask(args map[string]interface{}) ToolResult {
 	if requiresTest, ok := args["requires_test"].(bool); ok {
 		req.RequiresTest = &requiresTest
 	}
-	if testFile, ok := args["test_file"].(string); ok {
-		req.TestFile = &testFile
-	}
-	if testFunc, ok := args["test_func"].(string); ok {
-		req.TestFunc = &testFunc
+	// Parse tests array
+	if testsRaw, ok := args["tests"].([]interface{}); ok {
+		tests := make([]models.TestSpec, 0, len(testsRaw))
+		for _, testRaw := range testsRaw {
+			if testMap, ok := testRaw.(map[string]interface{}); ok {
+				file, _ := testMap["file"].(string)
+				fn, _ := testMap["func"].(string)
+				if file != "" && fn != "" {
+					tests = append(tests, models.TestSpec{File: file, Func: fn})
+				}
+			}
+		}
+		if len(tests) > 0 {
+			req.Tests = tests
+		}
 	}
 
 	task, err := h.store.Update(taskID, req)
@@ -469,7 +504,14 @@ func (h *ToolHandler) updateTask(args map[string]interface{}) ToolResult {
 	sb.WriteString(fmt.Sprintf("**Priority:** %s\n", task.Priority))
 	sb.WriteString(fmt.Sprintf("**Requires Test:** %t\n", task.RequiresTest))
 	if task.HasTest() {
-		sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.TestFile, task.TestFunc))
+		if len(task.Tests) == 1 {
+			sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.Tests[0].File, task.Tests[0].Func))
+		} else {
+			sb.WriteString("**Tests:**\n")
+			for _, test := range task.Tests {
+				sb.WriteString(fmt.Sprintf("  - %s:%s\n", test.File, test.Func))
+			}
+		}
 	}
 
 	return ToolResult{
@@ -494,10 +536,10 @@ func (h *ToolHandler) runTest(args map[string]interface{}) ToolResult {
 		}
 	}
 
-	// Check if task has a test associated
+	// Check if task has tests associated
 	if !task.HasTest() {
 		return ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Task '%s' does not have a test associated with it. Add test metadata to the task in TASKS.md first.", task.Title)}},
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Task '%s' does not have any tests associated with it. Use update_task to add tests first.", task.Title)}},
 			IsError: true,
 		}
 	}
@@ -505,12 +547,12 @@ func (h *ToolHandler) runTest(args map[string]interface{}) ToolResult {
 	// Mark as running
 	h.store.SetTestRunning(taskID)
 
-	// Run the test
+	// Run all tests
 	ctx := context.Background()
-	result := h.runner.Run(ctx, task.TestFile, task.TestFunc)
+	results := h.runner.RunAll(ctx, task.Tests)
 
-	// Update the task
-	updatedTask, err := h.store.UpdateTestResult(taskID, result)
+	// Update the task with aggregated results
+	updatedTask, err := h.store.UpdateTestResults(taskID, results)
 	if err != nil {
 		return ToolResult{
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Failed to update task: %v", err)}},
@@ -519,22 +561,38 @@ func (h *ToolHandler) runTest(args map[string]interface{}) ToolResult {
 	}
 
 	var sb strings.Builder
-	if result.Passed {
-		sb.WriteString("# Test PASSED!\n\n")
+	if results.AllPassed {
+		sb.WriteString("# All Tests PASSED!\n\n")
 		sb.WriteString(fmt.Sprintf("The task '%s' has been automatically moved to the 'done' column.\n\n", task.Title))
 	} else {
-		sb.WriteString("# Test FAILED\n\n")
+		sb.WriteString("# Tests FAILED\n\n")
 		sb.WriteString(fmt.Sprintf("The task '%s' remains in the '%s' column.\n\n", task.Title, updatedTask.Column))
 	}
 
-	sb.WriteString(fmt.Sprintf("**Test:** %s:%s\n", task.TestFile, task.TestFunc))
-	sb.WriteString(fmt.Sprintf("**Duration:** %dms\n\n", result.RunTime))
-	sb.WriteString("## Output\n```\n")
-	sb.WriteString(result.Output)
-	sb.WriteString("\n```")
+	sb.WriteString(fmt.Sprintf("**Total Duration:** %dms\n\n", results.TotalTime))
 
-	if result.Error != "" {
-		sb.WriteString(fmt.Sprintf("\n\n**Error:** %s", result.Error))
+	// Show results for each test
+	sb.WriteString("## Test Results\n\n")
+	for i, result := range results.Results {
+		var testName string
+		if i < len(task.Tests) {
+			testName = fmt.Sprintf("%s:%s", task.Tests[i].File, task.Tests[i].Func)
+		} else {
+			testName = fmt.Sprintf("Test %d", i+1)
+		}
+
+		status := "PASSED"
+		if !result.Passed {
+			status = "FAILED"
+		}
+		sb.WriteString(fmt.Sprintf("### %s - %s (%dms)\n", testName, status, result.RunTime))
+		sb.WriteString("```\n")
+		sb.WriteString(result.Output)
+		sb.WriteString("\n```\n")
+		if result.Error != "" {
+			sb.WriteString(fmt.Sprintf("**Error:** %s\n", result.Error))
+		}
+		sb.WriteString("\n")
 	}
 
 	return ToolResult{

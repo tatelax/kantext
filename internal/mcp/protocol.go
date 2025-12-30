@@ -63,8 +63,18 @@ type InputSchema struct {
 }
 
 type Property struct {
-	Type        string `json:"type"`
-	Description string `json:"description"`
+	Type        string              `json:"type"`
+	Description string              `json:"description"`
+	Items       *PropertyItems      `json:"items,omitempty"`       // For array types
+	Properties  map[string]Property `json:"properties,omitempty"`  // For object types
+	Required    []string            `json:"required,omitempty"`    // For object types
+}
+
+// PropertyItems defines the schema for array items
+type PropertyItems struct {
+	Type       string              `json:"type"`
+	Properties map[string]Property `json:"properties,omitempty"`
+	Required   []string            `json:"required,omitempty"`
 }
 
 type ListToolsResult struct {

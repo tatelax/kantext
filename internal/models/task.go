@@ -54,9 +54,8 @@ type Task struct {
 	AcceptanceCriteria string     `json:"acceptance_criteria"`
 	Priority           Priority   `json:"priority"`
 	Column             Column     `json:"column"`
-	RequiresTest       bool       `json:"requires_test"`                // Whether task completion requires a passing test
-	TestFile           string     `json:"test_file"`                    // Path to test file relative to working dir (e.g., "internal/auth/auth_test.go")
-	TestFunc           string     `json:"test_func"`                    // Test function name (e.g., "TestLogin")
+	RequiresTest       bool       `json:"requires_test"`       // Whether task completion requires a passing test
+	Tests              []TestSpec `json:"tests"`               // Array of test specifications
 	TestStatus         TestStatus `json:"test_status"`
 	LastRun            *time.Time `json:"last_run,omitempty"`
 	LastOutput         string     `json:"last_output,omitempty"`
@@ -78,14 +77,19 @@ type CreateTaskRequest struct {
 
 // UpdateTaskRequest is the request body for updating a task
 type UpdateTaskRequest struct {
-	Title              *string   `json:"title,omitempty"`
-	AcceptanceCriteria *string   `json:"acceptance_criteria,omitempty"`
-	Priority           *Priority `json:"priority,omitempty"`
-	Column             *Column   `json:"column,omitempty"`
-	RequiresTest       *bool     `json:"requires_test,omitempty"` // Optional: whether task requires a passing test
-	TestFile           *string   `json:"test_file,omitempty"`     // Optional: path to test file relative to working dir
-	TestFunc           *string   `json:"test_func,omitempty"`     // Optional: test function name
-	Author             string    `json:"author,omitempty"`        // Optional: who is updating this task
+	Title              *string    `json:"title,omitempty"`
+	AcceptanceCriteria *string    `json:"acceptance_criteria,omitempty"`
+	Priority           *Priority  `json:"priority,omitempty"`
+	Column             *Column    `json:"column,omitempty"`
+	RequiresTest       *bool      `json:"requires_test,omitempty"` // Optional: whether task requires a passing test
+	Tests              []TestSpec `json:"tests,omitempty"`         // Optional: array of test specifications
+	Author             string     `json:"author,omitempty"`        // Optional: who is updating this task
+}
+
+// TestSpec represents a single test file and function pair
+type TestSpec struct {
+	File string `json:"file"` // Path to test file relative to working dir (e.g., "internal/auth/auth_test.go")
+	Func string `json:"func"` // Test function name (e.g., "TestLogin")
 }
 
 // TestResult represents the result of running a test
@@ -96,7 +100,14 @@ type TestResult struct {
 	RunTime int64  `json:"run_time_ms"`
 }
 
-// HasTest returns true if the task has a test associated with it
+// TestResults represents the aggregated result of running multiple tests
+type TestResults struct {
+	AllPassed bool         `json:"all_passed"`
+	Results   []TestResult `json:"results"`
+	TotalTime int64        `json:"total_time_ms"`
+}
+
+// HasTest returns true if the task has at least one test associated with it
 func (t *Task) HasTest() bool {
-	return t.TestFile != "" && t.TestFunc != ""
+	return len(t.Tests) > 0
 }

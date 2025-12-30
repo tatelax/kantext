@@ -830,10 +830,9 @@ function tasksEqual(oldTasks, newTasks) {
             oldTask.column !== newTask.column ||
             oldTask.priority !== newTask.priority ||
             oldTask.test_status !== newTask.test_status ||
-            oldTask.test_file !== newTask.test_file ||
-            oldTask.test_func !== newTask.test_func ||
             oldTask.requires_test !== newTask.requires_test ||
-            oldTask.acceptance_criteria !== newTask.acceptance_criteria) {
+            oldTask.acceptance_criteria !== newTask.acceptance_criteria ||
+            !testsArrayEqual(oldTask.tests, newTask.tests)) {
             return false;
         }
     }
@@ -1104,7 +1103,7 @@ function updateTaskCard(card, task) {
     const existingMeta = card.querySelector('.task-meta');
 
     if (hasTest) {
-        const testText = `${task.test_file}:${task.test_func}`;
+        const testText = getTestDisplayText(task);
         const statusText = formatStatus(task.test_status);
 
         if (existingMeta) {
@@ -1133,7 +1132,7 @@ function updateTaskCard(card, task) {
         } else {
             // Need to add meta section
             const metaHtml = `<div class="task-meta">
-                <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
+                <span class="task-test">${escapeHtml(testText)}</span>
                 <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
             </div>`;
             card.insertAdjacentHTML('beforeend', metaHtml);
@@ -1199,10 +1198,63 @@ function updateTaskCard(card, task) {
 
 /**
  * Check if a task has a test associated with it
+ * Supports the new tests array format
  */
 function taskHasTest(task) {
-    return task.test_file && task.test_file.trim() !== '' &&
-           task.test_func && task.test_func.trim() !== '';
+    return task.tests && task.tests.length > 0 &&
+           task.tests.some(t => t.file && t.file.trim() !== '' && t.func && t.func.trim() !== '');
+}
+
+/**
+ * Get display text for tests (single test shows file:func, multiple shows "N tests")
+ */
+function getTestDisplayText(task) {
+    if (!taskHasTest(task)) return '';
+    if (task.tests.length === 1) {
+        return `${task.tests[0].file}:${task.tests[0].func}`;
+    }
+    return `${task.tests.length} tests`;
+}
+
+/**
+ * Compare two test arrays for equality
+ */
+function testsArrayEqual(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    return a.every((item, i) => item.file === b[i].file && item.func === b[i].func);
+}
+
+/**
+ * Creates HTML for a test entry row
+ */
+function createTestEntryHTML(test = {file: '', func: ''}, index) {
+    return `
+        <div class="test-entry" data-index="${index}">
+            <input type="text" name="tests[${index}][file]" value="${escapeHtml(test.file || '')}"
+                   class="input-field" placeholder="path/to/test.go">
+            <input type="text" name="tests[${index}][func]" value="${escapeHtml(test.func || '')}"
+                   class="input-field" placeholder="TestFunctionName">
+            <button type="button" class="remove-test-btn" title="Remove test">&times;</button>
+        </div>
+    `;
+}
+
+/**
+ * Attaches event listeners to test entry elements
+ */
+function attachTestEntryListeners() {
+    document.querySelectorAll('.test-entry .remove-test-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            e.target.closest('.test-entry').remove();
+            updatePanelSaveButton();
+        };
+    });
+    document.querySelectorAll('.test-entry input').forEach(input => {
+        input.removeEventListener('input', updatePanelSaveButton);
+        input.addEventListener('input', updatePanelSaveButton);
+    });
 }
 
 function createTaskCard(task) {
@@ -1226,8 +1278,9 @@ function createTaskCard(task) {
     let metaHtml = '';
     if (hasTest) {
         // Task has test configured - show full test info with status
+        const testDisplay = getTestDisplayText(task);
         metaHtml = `<div class="task-meta">
-               <span class="task-test">${escapeHtml(task.test_file)}:${escapeHtml(task.test_func)}</span>
+               <span class="task-test">${escapeHtml(testDisplay)}</span>
                <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
            </div>`;
     } else if (requiresTest) {
@@ -1579,18 +1632,26 @@ function openTaskPanel(task) {
     const titleEl = document.getElementById('panel-title');
     const titleInput = document.getElementById('panel-title-input');
     const criteriaInput = document.getElementById('panel-criteria-input');
-    const testFileInput = document.getElementById('panel-test-file');
-    const testFuncInput = document.getElementById('panel-test-func');
+    const testsContainer = document.getElementById('panel-tests-container');
     const taskIdEl = document.getElementById('panel-task-id');
 
     if (idInput) idInput.value = task.id;
     if (titleEl) titleEl.textContent = task.title || '';
     if (titleInput) titleInput.value = task.title || '';
     if (criteriaInput) criteriaInput.value = task.acceptance_criteria || '';
-    if (testFileInput) testFileInput.value = task.test_file || '';
-    if (testFuncInput) testFuncInput.value = task.test_func || '';
     if (taskIdEl) taskIdEl.textContent = task.id;
     if (panelRequiresTestCheckbox) panelRequiresTestCheckbox.checked = task.requires_test || false;
+
+    // Populate tests container with test entries
+    if (testsContainer) {
+        testsContainer.innerHTML = '';
+        if (task.tests && task.tests.length > 0) {
+            task.tests.forEach((test, i) => {
+                testsContainer.insertAdjacentHTML('beforeend', createTestEntryHTML(test, i));
+            });
+        }
+        attachTestEntryListeners();
+    }
 
     // Ensure title is in display mode (not edit mode)
     hideTitleEditMode();
@@ -1598,22 +1659,6 @@ function openTaskPanel(task) {
     // Set priority radio button
     const priorityRadio = panelTaskForm?.querySelector(`input[name="panel-priority"][value="${task.priority || 'medium'}"]`);
     if (priorityRadio) priorityRadio.checked = true;
-
-    // Ensure task details section is open
-    const detailsSection = document.getElementById('panel-details-section');
-    if (detailsSection) {
-        detailsSection.setAttribute('open', '');
-    }
-
-    // Expand advanced section only if task requires test or has test configuration
-    const advancedSection = document.getElementById('panel-advanced-section');
-    if (advancedSection) {
-        if (task.requires_test || (task.test_file && task.test_func)) {
-            advancedSection.setAttribute('open', '');
-        } else {
-            advancedSection.removeAttribute('open');
-        }
-    }
 
     // Update metadata display
     updatePanelMetadata(task);
@@ -1624,8 +1669,7 @@ function openTaskPanel(task) {
         acceptance_criteria: task.acceptance_criteria || '',
         priority: task.priority || 'medium',
         requires_test: task.requires_test || false,
-        test_file: task.test_file || '',
-        test_func: task.test_func || ''
+        tests: JSON.stringify(task.tests || [])
     };
 
     // Disable save button initially (no changes yet)
@@ -1664,16 +1708,26 @@ function getPanelFormValues() {
     const titleEl = document.getElementById('panel-title');
     const criteriaInput = document.getElementById('panel-criteria-input');
     const priorityRadio = panelTaskForm?.querySelector('input[name="panel-priority"]:checked');
-    const testFileInput = document.getElementById('panel-test-file');
-    const testFuncInput = document.getElementById('panel-test-func');
+
+    // Collect tests array from test entries
+    const tests = [];
+    document.querySelectorAll('.test-entry').forEach((entry) => {
+        const fileInput = entry.querySelector('input[name$="[file]"]');
+        const funcInput = entry.querySelector('input[name$="[func]"]');
+        const file = fileInput?.value?.trim() || '';
+        const func = funcInput?.value?.trim() || '';
+        // Only include entries with at least one field filled
+        if (file || func) {
+            tests.push({ file, func });
+        }
+    });
 
     return {
         title: titleEl?.textContent || '',
         acceptance_criteria: criteriaInput?.value || '',
         priority: priorityRadio?.value || 'medium',
         requires_test: panelRequiresTestCheckbox?.checked || false,
-        test_file: testFileInput?.value || '',
-        test_func: testFuncInput?.value || ''
+        tests: tests
     };
 }
 
@@ -1684,13 +1738,13 @@ function panelHasChanges() {
     if (!panelOriginalValues) return false;
 
     const current = getPanelFormValues();
+    const currentTestsJson = JSON.stringify(current.tests);
 
     return current.title !== panelOriginalValues.title ||
            current.acceptance_criteria !== panelOriginalValues.acceptance_criteria ||
            current.priority !== panelOriginalValues.priority ||
            current.requires_test !== panelOriginalValues.requires_test ||
-           current.test_file !== panelOriginalValues.test_file ||
-           current.test_func !== panelOriginalValues.test_func;
+           currentTestsJson !== panelOriginalValues.tests;
 }
 
 /**
@@ -1843,6 +1897,7 @@ async function handlePanelFormSubmit(e) {
 
     const formData = new FormData(panelTaskForm);
     const titleEl = document.getElementById('panel-title');
+    const formValues = getPanelFormValues();
 
     // Use the displayed title (which may have been edited inline)
     const title = titleEl?.textContent || formData.get('title') || currentPanelTask.title;
@@ -1852,8 +1907,7 @@ async function handlePanelFormSubmit(e) {
         acceptance_criteria: formData.get('acceptance_criteria'),
         priority: formData.get('panel-priority'),
         requires_test: panelRequiresTestCheckbox?.checked || false,
-        test_file: formData.get('test_file'),
-        test_func: formData.get('test_func')
+        tests: formValues.tests
     };
 
     try {
@@ -1958,16 +2012,26 @@ function initTaskPanel() {
     // Change detection for form inputs
     const criteriaInput = document.getElementById('panel-criteria-input');
     const priorityRadios = panelTaskForm?.querySelectorAll('input[name="panel-priority"]');
-    const testFileInput = document.getElementById('panel-test-file');
-    const testFuncInput = document.getElementById('panel-test-func');
 
     criteriaInput?.addEventListener('input', updatePanelSaveButton);
     priorityRadios?.forEach(radio => {
         radio.addEventListener('change', updatePanelSaveButton);
     });
     panelRequiresTestCheckbox?.addEventListener('change', updatePanelSaveButton);
-    testFileInput?.addEventListener('input', updatePanelSaveButton);
-    testFuncInput?.addEventListener('input', updatePanelSaveButton);
+
+    // Add Test button
+    const addTestBtn = document.getElementById('panel-add-test-btn');
+    addTestBtn?.addEventListener('click', () => {
+        const container = document.getElementById('panel-tests-container');
+        if (!container) return;
+        const index = container.querySelectorAll('.test-entry').length;
+        container.insertAdjacentHTML('beforeend', createTestEntryHTML({}, index));
+        attachTestEntryListeners();
+        updatePanelSaveButton();
+        // Focus the new file input
+        const newEntry = container.querySelector(`.test-entry[data-index="${index}"]`);
+        newEntry?.querySelector('input')?.focus();
+    });
 }
 
 // ============================================
@@ -2026,7 +2090,7 @@ async function handleRunTest(taskId, button) {
         await loadTasks();
 
         // Show output if there's an error
-        if (!result.result.passed) {
+        if (!result.results.all_passed) {
             showOutput(result.task);
         }
     } catch (error) {
@@ -2146,10 +2210,9 @@ function trackDragMovement(e) {
 
     // Calculate velocity based on mouse movement
     const deltaX = e.clientX - lastMouseX;
-    const deltaY = e.clientY - lastMouseY;
 
-    // Smooth velocity with exponential moving average
-    mouseVelocityX = mouseVelocityX * 0.7 + deltaX * 0.3;
+    // More responsive velocity tracking for snappier rotation
+    mouseVelocityX = mouseVelocityX * 0.6 + deltaX * 0.4;
 
     // Update last position
     lastMouseX = e.clientX;
@@ -2165,8 +2228,8 @@ function trackDragMovement(e) {
         if (!dragGhost) return;
 
         // Calculate rotation based on horizontal velocity
-        // Clamp rotation to ±8 degrees for subtle effect
-        const rotation = Math.max(-8, Math.min(8, mouseVelocityX * 0.5));
+        // Clamp rotation to ±12 degrees for noticeable but not extreme effect
+        const rotation = Math.max(-12, Math.min(12, mouseVelocityX * 0.8));
 
         // Update ghost position (centered on cursor)
         const ghostWidth = dragGhost.offsetWidth;

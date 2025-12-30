@@ -124,11 +124,13 @@ func (s *TaskStore) Load() error {
 				case "requires_test":
 					currentTask.RequiresTest = value == "true"
 				case "test":
-					// Parse test: path/to/file:TestFunc
+					// Parse test: path/to/file:TestFunc and append to Tests array
 					parts := strings.SplitN(value, ":", 2)
 					if len(parts) == 2 {
-						currentTask.TestFile = parts[0]
-						currentTask.TestFunc = parts[1]
+						currentTask.Tests = append(currentTask.Tests, models.TestSpec{
+							File: parts[0],
+							Func: parts[1],
+						})
 					}
 				case "criteria":
 					currentTask.AcceptanceCriteria = value
@@ -261,11 +263,13 @@ func (s *TaskStore) parseLegacyTaskWithTest(matches []string, column models.Colu
 	}
 
 	task := &models.Task{
-		ID:                 id,
-		Priority:           models.Priority(matches[2]),
-		Title:              strings.TrimSpace(matches[3]),
-		TestFile:           strings.TrimSpace(matches[4]),
-		TestFunc:           strings.TrimSpace(matches[5]),
+		ID:       id,
+		Priority: models.Priority(matches[2]),
+		Title:    strings.TrimSpace(matches[3]),
+		Tests: []models.TestSpec{{
+			File: strings.TrimSpace(matches[4]),
+			Func: strings.TrimSpace(matches[5]),
+		}},
 		AcceptanceCriteria: strings.TrimSpace(matches[6]),
 		Column:             column,
 		TestStatus:         models.TestStatusPending,
@@ -308,10 +312,12 @@ func (s *TaskStore) parseLegacyOldTask(matches []string, column models.Column) *
 	}
 
 	task := &models.Task{
-		ID:                 id,
-		Title:              strings.TrimSpace(matches[2]),
-		TestFile:           strings.TrimSpace(matches[3]),
-		TestFunc:           strings.TrimSpace(matches[4]),
+		ID:    id,
+		Title: strings.TrimSpace(matches[2]),
+		Tests: []models.TestSpec{{
+			File: strings.TrimSpace(matches[3]),
+			Func: strings.TrimSpace(matches[4]),
+		}},
 		AcceptanceCriteria: strings.TrimSpace(matches[5]),
 		Priority:           models.PriorityMedium,
 		Column:             column,
@@ -394,8 +400,9 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 	fmt.Fprintf(file, "  - priority: %s\n", task.Priority)
 	fmt.Fprintf(file, "  - requires_test: %t\n", task.RequiresTest)
 
-	if task.HasTest() {
-		fmt.Fprintf(file, "  - test: %s:%s\n", task.TestFile, task.TestFunc)
+	// Write all tests
+	for _, test := range task.Tests {
+		fmt.Fprintf(file, "  - test: %s:%s\n", test.File, test.Func)
 	}
 
 	if task.AcceptanceCriteria != "" {
@@ -734,11 +741,8 @@ func (s *TaskStore) Update(id string, req models.UpdateTaskRequest) (*models.Tas
 	if req.RequiresTest != nil {
 		task.RequiresTest = *req.RequiresTest
 	}
-	if req.TestFile != nil {
-		task.TestFile = *req.TestFile
-	}
-	if req.TestFunc != nil {
-		task.TestFunc = *req.TestFunc
+	if req.Tests != nil {
+		task.Tests = req.Tests
 	}
 
 	// Update timestamp metadata
@@ -778,7 +782,7 @@ func (s *TaskStore) Delete(id string) error {
 	return err
 }
 
-// UpdateTestResult updates a task's test status and output
+// UpdateTestResult updates a task's test status and output (for single test)
 func (s *TaskStore) UpdateTestResult(id string, result models.TestResult) (*models.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -804,6 +808,54 @@ func (s *TaskStore) UpdateTestResult(id string, result models.TestResult) (*mode
 	}
 
 	task.LastOutput = result.Output
+
+	// Save to file
+	s.mu.Unlock()
+	err := s.Save()
+	s.mu.Lock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
+}
+
+// UpdateTestResults updates a task's test status based on aggregated results (for multiple tests)
+func (s *TaskStore) UpdateTestResults(id string, results models.TestResults) (*models.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[id]
+	if !ok {
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+
+	if results.AllPassed {
+		task.TestStatus = models.TestStatusPassed
+		// Auto-move to last column on pass
+		if len(s.columns) > 0 {
+			sorted := make([]models.ColumnDefinition, len(s.columns))
+			copy(sorted, s.columns)
+			sort.Slice(sorted, func(i, j int) bool {
+				return sorted[i].Order < sorted[j].Order
+			})
+			task.Column = models.Column(sorted[len(sorted)-1].Slug)
+		}
+	} else {
+		task.TestStatus = models.TestStatusFailed
+	}
+
+	// Combine all outputs
+	var outputs []string
+	for i, result := range results.Results {
+		if len(task.Tests) > i {
+			outputs = append(outputs, fmt.Sprintf("=== %s:%s ===\n%s", task.Tests[i].File, task.Tests[i].Func, result.Output))
+		} else {
+			outputs = append(outputs, result.Output)
+		}
+	}
+	task.LastOutput = strings.Join(outputs, "\n\n")
 
 	// Save to file
 	s.mu.Unlock()

@@ -99,6 +99,28 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 	return result
 }
 
+// RunAll executes all tests in the given array and returns aggregated results
+// All tests must pass for AllPassed to be true
+func (r *TestRunner) RunAll(ctx context.Context, tests []models.TestSpec) models.TestResults {
+	start := time.Now()
+
+	results := models.TestResults{
+		AllPassed: true,
+		Results:   make([]models.TestResult, 0, len(tests)),
+	}
+
+	for _, test := range tests {
+		result := r.Run(ctx, test.File, test.Func)
+		results.Results = append(results.Results, result)
+		if !result.Passed {
+			results.AllPassed = false
+		}
+	}
+
+	results.TotalTime = time.Since(start).Milliseconds()
+	return results
+}
+
 // RunAsync runs a test asynchronously and calls the callback with the result
 func (r *TestRunner) RunAsync(testFile, testFunc string, callback func(models.TestResult)) {
 	go func() {

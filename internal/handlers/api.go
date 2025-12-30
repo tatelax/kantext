@@ -118,7 +118,7 @@ func (h *APIHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RunTest executes the test associated with a task
+// RunTest executes all tests associated with a task
 func (h *APIHandler) RunTest(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -128,29 +128,29 @@ func (h *APIHandler) RunTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if task has a test associated
+	// Check if task has tests associated
 	if !task.HasTest() {
-		respondError(w, http.StatusBadRequest, "Task does not have a test associated with it")
+		respondError(w, http.StatusBadRequest, "Task does not have any tests associated with it")
 		return
 	}
 
 	// Mark as running
 	h.store.SetTestRunning(id)
 
-	// Run the test synchronously (for now)
-	result := h.runner.Run(r.Context(), task.TestFile, task.TestFunc)
+	// Run all tests synchronously
+	results := h.runner.RunAll(r.Context(), task.Tests)
 
-	// Update the task with the result
-	updatedTask, err := h.store.UpdateTestResult(id, result)
+	// Update the task with the aggregated results
+	updatedTask, err := h.store.UpdateTestResults(id, results)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Return both the task and result
+	// Return both the task and results
 	response := map[string]interface{}{
-		"task":   updatedTask,
-		"result": result,
+		"task":    updatedTask,
+		"results": results,
 	}
 
 	respondJSON(w, http.StatusOK, response)
