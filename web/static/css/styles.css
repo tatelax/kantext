@@ -750,36 +750,36 @@ html.dark .task-card.no-test {
     50% { opacity: 0.5; }
 }
 
-/* Task Meta */
+/* Task Meta - metadata display (date, test count, status) */
 .task-meta {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.task-test {
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, monospace;
     font-size: 0.75rem;
-    background-color: var(--muted);
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
-    color: var(--primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    color: var(--muted-foreground);
     min-width: 0;
-    flex: 1 1 0;
+    overflow: hidden;
 }
 
-/* No test configured placeholder */
-.task-test.no-test-configured {
-    font-family: inherit;
+/* Date display */
+.task-date {
+    white-space: nowrap;
+}
+
+/* Separator dot between metadata items */
+.task-meta-separator {
+    color: var(--border);
+    flex-shrink: 0;
+}
+
+/* Test count display */
+.task-test-count {
+    white-space: nowrap;
+}
+
+/* "No test" indicator for tasks requiring tests */
+.task-test-count.no-test {
     font-style: italic;
-    color: var(--muted-foreground);
-    background-color: transparent;
-    border: 1px dashed var(--border);
 }
 
 /* Task Status Badges */

@@ -825,13 +825,14 @@ function tasksEqual(oldTasks, newTasks) {
         const oldTask = oldMap.get(newTask.id);
         if (!oldTask) return false;
 
-        // Compare relevant fields
+        // Compare relevant fields (including updated_at since we display dates on cards)
         if (oldTask.title !== newTask.title ||
             oldTask.column !== newTask.column ||
             oldTask.priority !== newTask.priority ||
             oldTask.test_status !== newTask.test_status ||
             oldTask.requires_test !== newTask.requires_test ||
             oldTask.acceptance_criteria !== newTask.acceptance_criteria ||
+            oldTask.updated_at !== newTask.updated_at ||
             !testsArrayEqual(oldTask.tests, newTask.tests)) {
             return false;
         }
@@ -1099,45 +1100,58 @@ function updateTaskCard(card, task) {
         existingCriteriaIcon.remove();
     }
 
-    // Handle test meta section
+    // Handle test meta section - rebuild with new structure
     const existingMeta = card.querySelector('.task-meta');
+    const dateText = formatCardDate(task.updated_at || task.created_at);
 
-    if (hasTest) {
-        const testText = getTestDisplayText(task);
-        const statusText = formatStatus(task.test_status);
-
-        if (existingMeta) {
-            // Update existing meta - ensure it has the right structure
-            let testEl = existingMeta.querySelector('.task-test');
-            if (testEl) {
-                // Remove no-test-configured class if it was there
-                testEl.classList.remove('no-test-configured');
-                if (testEl.textContent !== testText) {
-                    testEl.textContent = testText;
-                }
-            }
-
-            let statusEl = existingMeta.querySelector('.task-status');
-            if (!statusEl) {
-                // Add status element if it was missing (e.g., was "No test specified" before)
-                existingMeta.insertAdjacentHTML('beforeend',
-                    `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`);
-            } else {
-                if (statusEl.textContent !== statusText) {
-                    statusEl.textContent = statusText;
-                }
-                // Update status class
-                statusEl.className = `task-status ${task.test_status}`;
-            }
-        } else {
-            // Need to add meta section
-            const metaHtml = `<div class="task-meta">
-                <span class="task-test">${escapeHtml(testText)}</span>
-                <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
+    // Helper to build the new meta HTML
+    const buildMetaHtml = () => {
+        if (hasTest) {
+            const testDisplay = getTestDisplayText(task);
+            const showStatus = task.test_status && task.test_status !== 'pending';
+            const statusHtml = showStatus
+                ? `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`
+                : '';
+            return `<div class="task-meta">
+                <span class="task-date">${escapeHtml(dateText)}</span>
+                <span class="task-meta-separator">•</span>
+                <span class="task-test-count">${escapeHtml(testDisplay)}</span>
+                ${statusHtml}
             </div>`;
-            card.insertAdjacentHTML('beforeend', metaHtml);
+        } else if (requiresTest) {
+            return `<div class="task-meta">
+                <span class="task-date">${escapeHtml(dateText)}</span>
+                <span class="task-meta-separator">•</span>
+                <span class="task-test-count no-test">No test</span>
+            </div>`;
+        } else if (dateText) {
+            return `<div class="task-meta">
+                <span class="task-date">${escapeHtml(dateText)}</span>
+            </div>`;
         }
+        return '';
+    };
 
+    // Update or create meta section
+    const newMetaHtml = buildMetaHtml();
+    if (existingMeta) {
+        // Check if we need to update by comparing content
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = newMetaHtml;
+        const newMetaContent = tempDiv.firstElementChild?.innerHTML || '';
+        if (existingMeta.innerHTML !== newMetaContent) {
+            if (newMetaHtml) {
+                existingMeta.outerHTML = newMetaHtml;
+            } else {
+                existingMeta.remove();
+            }
+        }
+    } else if (newMetaHtml) {
+        card.insertAdjacentHTML('beforeend', newMetaHtml);
+    }
+
+    // Handle play button based on test state
+    if (hasTest) {
         // Ensure play button exists
         const actionsContainer = card.querySelector('.task-actions');
         if (!actionsContainer) {
@@ -1157,38 +1171,8 @@ function updateTaskCard(card, task) {
                 }
             }
         }
-    } else if (requiresTest) {
-        // Task requires test but none configured - show placeholder
-        if (existingMeta) {
-            // Update existing meta to show "No test specified"
-            const testEl = existingMeta.querySelector('.task-test');
-            if (testEl) {
-                testEl.classList.add('no-test-configured');
-                testEl.textContent = 'No test specified';
-            }
-            // Remove status badge
-            const statusEl = existingMeta.querySelector('.task-status');
-            if (statusEl) {
-                statusEl.remove();
-            }
-        } else {
-            // Add meta section with placeholder
-            const metaHtml = `<div class="task-meta">
-                <span class="task-test no-test-configured">No test specified</span>
-            </div>`;
-            card.insertAdjacentHTML('beforeend', metaHtml);
-        }
-
-        // Remove play button since no test is configured
-        const actionsContainer = card.querySelector('.task-actions');
-        if (actionsContainer) {
-            actionsContainer.remove();
-        }
     } else {
-        // Task doesn't require test - remove meta and play button
-        if (existingMeta) {
-            existingMeta.remove();
-        }
+        // Remove play button since no test is configured
         const actionsContainer = card.querySelector('.task-actions');
         if (actionsContainer) {
             actionsContainer.remove();
@@ -1206,14 +1190,12 @@ function taskHasTest(task) {
 }
 
 /**
- * Get display text for tests (single test shows file:func, multiple shows "N tests")
+ * Get display text for tests count (e.g., "1 test" or "3 tests")
  */
 function getTestDisplayText(task) {
     if (!taskHasTest(task)) return '';
-    if (task.tests.length === 1) {
-        return `${task.tests[0].file}:${task.tests[0].func}`;
-    }
-    return `${task.tests.length} tests`;
+    const count = task.tests.length;
+    return count === 1 ? '1 test' : `${count} tests`;
 }
 
 /**
@@ -1274,19 +1256,34 @@ function createTaskCard(task) {
            </div>`
         : '';
 
-    // Build meta HTML based on test requirements
+    // Build meta HTML - always show date, optionally show test info
     let metaHtml = '';
+    const dateText = formatCardDate(task.updated_at || task.created_at);
+
     if (hasTest) {
-        // Task has test configured - show full test info with status
+        // Task has test configured - show date, test count, and status (if run)
         const testDisplay = getTestDisplayText(task);
+        const showStatus = task.test_status && task.test_status !== 'pending';
+        const statusHtml = showStatus
+            ? `<span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>`
+            : '';
         metaHtml = `<div class="task-meta">
-               <span class="task-test">${escapeHtml(testDisplay)}</span>
-               <span class="task-status ${task.test_status}">${formatStatus(task.test_status)}</span>
+               <span class="task-date">${escapeHtml(dateText)}</span>
+               <span class="task-meta-separator">•</span>
+               <span class="task-test-count">${escapeHtml(testDisplay)}</span>
+               ${statusHtml}
            </div>`;
     } else if (requiresTest) {
-        // Task requires test but none configured - show placeholder
+        // Task requires test but none configured - show date and "No test" indicator
         metaHtml = `<div class="task-meta">
-               <span class="task-test no-test-configured">No test specified</span>
+               <span class="task-date">${escapeHtml(dateText)}</span>
+               <span class="task-meta-separator">•</span>
+               <span class="task-test-count no-test">No test</span>
+           </div>`;
+    } else if (dateText) {
+        // No test required - just show date
+        metaHtml = `<div class="task-meta">
+               <span class="task-date">${escapeHtml(dateText)}</span>
            </div>`;
     }
 
@@ -1560,6 +1557,34 @@ function formatDateTime(dateString) {
         minute: '2-digit',
         hour12: true
     });
+}
+
+/**
+ * Format a date for display on task cards (compact format)
+ * Shows: "Updated Dec 30" or "Updated Yesterday" etc.
+ */
+function formatCardDate(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+        return 'Updated today';
+    } else if (diffDays === 1) {
+        return 'Updated yesterday';
+    } else if (diffDays < 7) {
+        return `Updated ${diffDays} days ago`;
+    } else {
+        // Format as "Updated Dec 30"
+        return 'Updated ' + date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric'
+        });
+    }
 }
 
 function updateTaskMetadata(task) {
