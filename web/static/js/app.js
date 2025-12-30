@@ -786,6 +786,19 @@ async function deleteColumn(slug) {
     }
 }
 
+async function updateColumn(slug, name) {
+    const response = await fetch(`${API_BASE}/columns/${slug}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to update column');
+    }
+    return response.json();
+}
+
 async function reorderColumns(slugs) {
     const response = await fetch(`${API_BASE}/columns/reorder`, {
         method: 'PUT',
@@ -946,6 +959,11 @@ function createColumnElement(col) {
             </div>
             <div class="column-actions">
                 ${!isDefaultColumn(col.slug) ? `
+                <button class="edit-column-btn" title="Rename Column">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                    </svg>
+                </button>
                 <button class="delete-column-btn" title="Delete Column">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -973,6 +991,15 @@ function createColumnElement(col) {
     column.addEventListener('dragover', handleColumnDragOver);
     column.addEventListener('dragleave', handleColumnDragLeave);
     column.addEventListener('drop', handleColumnDrop);
+
+    // Edit column button (only exists for non-default columns)
+    const editBtn = column.querySelector('.edit-column-btn');
+    if (editBtn) {
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleEditColumn(col.slug);
+        });
+    }
 
     // Delete column button (only exists for non-default columns)
     const deleteBtn = column.querySelector('.delete-column-btn');
@@ -1509,6 +1536,30 @@ async function handleAddColumn() {
     } catch (error) {
         console.error('Failed to create column:', error);
         showNotification(error.message || 'Failed to create column', 'error');
+    }
+}
+
+async function handleEditColumn(slug) {
+    const col = columns.find(c => c.slug === slug);
+    if (!col) return;
+
+    const newName = await showPromptDialog('Enter new column name:', {
+        title: 'Rename Column',
+        placeholder: 'Column name',
+        confirmText: 'Rename',
+        defaultValue: col.name
+    });
+
+    if (!newName || !newName.trim() || newName.trim() === col.name) return;
+
+    try {
+        await updateColumn(slug, newName.trim());
+        await loadColumns();
+        renderTasks();
+        showNotification(`Column renamed to "${newName.trim()}"`, 'success');
+    } catch (error) {
+        console.error('Failed to rename column:', error);
+        showNotification(error.message || 'Failed to rename column', 'error');
     }
 }
 
