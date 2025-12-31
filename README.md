@@ -1,91 +1,153 @@
 # Kantext
 
-A TDD-focused Kanban board that tracks tasks alongside their tests, stores everything in a Markdown file, and provides an MCP server for direct LLM access.
+A TDD-focused Kanban board that tracks tasks alongside their tests, stores everything in a Markdown file, and provides an MCP server for LLM integration.
 
 ![images/board.png](images/board.png)
 
 ## Features
 
-- MCP server for AI assistant integration
-- Tasks stored in a simple Markdown file
-- Visual Kanban board with drag-and-drop
-- Auto-generates Go test files for new tasks
-- Runs tests and tracks pass/fail status
-- Real-time updates via WebSocket
+- **MCP server** for AI assistant integration (Claude, etc.)
+- **Markdown storage** - tasks saved in `TASKS.md` (git-friendly)
+- **Visual Kanban board** with drag-and-drop
+- **Test execution** with configurable test runner (Go, pytest, Jest, etc.)
+- **Real-time updates** via WebSocket
+
+## Prerequisites
+
+- [Go 1.21+](https://go.dev/dl/)
+
+## Installation
+
+### macOS / Linux
+
+```bash
+# Clone and build
+git clone https://github.com/yourusername/kantext.git
+cd kantext
+make build-all
+
+# Optional: Add to PATH
+sudo cp bin/kantext bin/kantext-mcp /usr/local/bin/
+```
+
+### Windows
+
+```powershell
+# Clone and build
+git clone https://github.com/yourusername/kantext.git
+cd kantext
+go build -o bin/kantext.exe ./cmd
+go build -o bin/kantext-mcp.exe ./cmd/mcp
+
+# Add bin/ folder to your PATH or copy executables to a folder in PATH
+```
 
 ## Quick Start
 
 ```bash
-# Build
-make build-all
+# Run from your project directory
+cd /path/to/your/project
+kantext -port 8080
 
-# Run the web server
-./bin/kantext -port 8081
-
-# Open http://localhost:8081
+# Open http://localhost:8080
 ```
 
-## Usage in Your Project
+This creates a `TASKS.md` file in your project directory.
 
-1. **Copy the binary** to your project or add to PATH:
-   ```bash
-   cp bin/kantext /usr/local/bin/
-   ```
+## Tasks
 
-2. **Run from your project root**:
-   ```bash
-   cd /path/to/your/project
-   kantext
-   ```
+### Regular Tasks
+Simple tasks without tests - just a title and optional acceptance criteria.
 
-   This creates:
-   - `TASKS.md` - Your task list (commit this!)
-   - `tests/` - Generated test files
+### Test-Linked Tasks
+Tasks with associated test files. When you create a task with `requires_test: true`, it must have passing tests before it can be marked complete.
 
-3. **Or use a config file** (`config.json`):
-   ```json
-   {
-     "working_directory": "/path/to/your/project",
-     "tasks_file": "TASKS.md"
-   }
-   ```
+- Add tests via the UI or MCP `update_task` tool
+- Tests are specified as `file:function` pairs (e.g., `internal/auth/auth_test.go:TestLogin`)
+- Run tests from the board or via MCP `run_test`
+- Tasks auto-move to "Done" when all tests pass
 
-   Then run:
-   ```bash
-   kantext -config /path/to/config.json
-   ```
+### Stale Tasks
+Tasks are marked stale if not updated within a configurable period (default: 7 days). Set this in your config:
 
-## MCP Server (for Claude, etc.)
+```json
+{
+  "stale_threshold_days": 14
+}
+```
 
-Add to your MCP config (e.g., `.mcp.json`):
+Stale tasks are visually highlighted in the UI to help identify forgotten work.
+
+## Configuration
+
+Create a `config.json` file for custom settings:
+
+```json
+{
+  "working_directory": "/path/to/your/project",
+  "tasks_file": "TASKS.md",
+  "test_runner": {
+    "command": "go test -v -count=1 -run ^{testFunc}$ {testPath}",
+    "pass_string": "PASS",
+    "fail_string": "FAIL"
+  }
+}
+```
+
+Run with config:
+```bash
+kantext -config config.json
+```
+
+### Test Runner Examples
+
+**Go (default):**
+```json
+"command": "go test -v -count=1 -run ^{testFunc}$ {testPath}"
+```
+
+**Python pytest:**
+```json
+"command": "pytest {testPath}::{testFunc} -v"
+```
+
+**JavaScript Jest:**
+```json
+"command": "npx jest {testPath} -t {testFunc}"
+```
+
+## MCP Server
+
+For AI assistant integration (Claude Code, etc.), add to your MCP config:
 
 ```json
 {
   "mcpServers": {
     "kantext": {
       "command": "/path/to/kantext-mcp",
-      "args": ["-config", "/path/to/your/project/config.json"]
+      "args": ["-config", "/path/to/config.json"]
     }
   }
 }
 ```
 
-Available tools:
-- `list_tasks` - View all tasks
-- `create_task` - Create a new task with auto-generated test
-- `run_test` - Run a task's test
+**Available tools:**
+- `list_tasks` - View all tasks by column
+- `create_task` - Create a new task
+- `get_task` - Get task details including test output
+- `update_task` - Update task properties
+- `run_test` - Run a task's tests
 - `move_task` - Move task between columns
-- `get_task` - Get task details
 - `delete_task` - Delete a task
 
-## Build
+## Build Commands
 
 ```bash
 make build        # Build web server
 make build-mcp    # Build MCP server
 make build-all    # Build both
-make clean        # Remove binaries
 make run          # Run web server
+make clean        # Remove binaries
 ```
 
 ## License

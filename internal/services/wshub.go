@@ -64,8 +64,13 @@ func (h *WSHub) Run() {
 					log.Printf("WebSocket write error: %v", err)
 					conn.Close()
 					// Schedule for removal (can't modify map during iteration)
+					// Use non-blocking send to prevent goroutine leak
 					go func(c *websocket.Conn) {
-						h.unregister <- c
+						select {
+						case h.unregister <- c:
+						default:
+							// Channel full or hub stopped, connection already closed
+						}
 					}(conn)
 				}
 			}

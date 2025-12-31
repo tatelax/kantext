@@ -125,3 +125,29 @@ type TestResults struct {
 func (t *Task) HasTest() bool {
 	return len(t.Tests) > 0
 }
+
+// CheckboxChar returns the markdown checkbox character for this task's test status.
+func (t *Task) CheckboxChar() string {
+	switch t.TestStatus {
+	case TestStatusPassed:
+		return "x"
+	case TestStatusFailed:
+		return "-"
+	default:
+		return " "
+	}
+}
+
+// ParsePriority converts a string to Priority, returning defaultPriority if invalid.
+func ParsePriority(s string, defaultPriority Priority) Priority {
+	switch strings.ToLower(s) {
+	case "high":
+		return PriorityHigh
+	case "medium":
+		return PriorityMedium
+	case "low":
+		return PriorityLow
+	default:
+		return defaultPriority
+	}
+}

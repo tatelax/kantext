@@ -74,8 +74,10 @@ async function loadConfig() {
 }
 
 // Check if a task is stale (not updated within the threshold)
+// Tasks in the Done column are never marked as stale
 function isTaskStale(task) {
     if (!task.updated_at) return false;
+    if (task.column === 'done') return false;
     const updatedAt = new Date(task.updated_at);
     const now = new Date();
     const diffMs = now - updatedAt;
@@ -1677,10 +1679,27 @@ function updateTaskCard(card, task) {
         titleEl.classList.toggle('task-done', task.column === 'done');
     }
 
+    // Handle stale icon
+    const stale = isTaskStale(task);
+    const existingStaleIcon = card.querySelector('.task-stale-icon');
+    const taskHeader = card.querySelector('.task-header');
+
+    if (stale && !existingStaleIcon && taskHeader) {
+        // Add stale icon
+        const staleIconHtml = `<span class="task-stale-icon" title="Task is stale (not updated in ${staleThresholdDays}+ days)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+            </svg>
+        </span>`;
+        taskHeader.insertAdjacentHTML('afterbegin', staleIconHtml);
+    } else if (!stale && existingStaleIcon) {
+        // Remove stale icon
+        existingStaleIcon.remove();
+    }
+
     // Handle criteria icon
     const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
     const existingCriteriaIcon = card.querySelector('.task-criteria-icon');
-    const taskHeader = card.querySelector('.task-header');
 
     if (hasCriteria && !existingCriteriaIcon && taskHeader) {
         // Add criteria icon

@@ -17,6 +17,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// Pre-compiled regex patterns for parsing task files
+var (
+	columnRegex             = regexp.MustCompile(`^## (.+)$`)
+	taskTitleRegex          = regexp.MustCompile(`^- \[([ x-])\] (.+)$`)
+	metadataRegex           = regexp.MustCompile(`^  - ([^:]+): (.*)$`)
+	legacyTaskWithTestRegex = regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	legacyTaskNoTestRegex   = regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+	legacyOldTaskRegex      = regexp.MustCompile(`^- \[([ x-])\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
+)
+
 // TaskStore manages reading and writing tasks to a markdown file
 type TaskStore struct {
 	filePath        string
@@ -38,6 +48,100 @@ func NewTaskStore(filePath string) *TaskStore {
 	return store
 }
 
+// applyMetadata parses a metadata key-value pair and applies it to the task.
+func applyMetadata(task *models.Task, key, value string) {
+	switch key {
+	case "id":
+		task.ID = value
+	case "priority":
+		task.Priority = models.Priority(value)
+	case "requires_test":
+		task.RequiresTest = value == "true"
+	case "test":
+		// Parse test: path/to/file:TestFunc and append to Tests array
+		parts := strings.SplitN(value, ":", 2)
+		if len(parts) == 2 {
+			task.Tests = append(task.Tests, models.TestSpec{
+				File: parts[0],
+				Func: parts[1],
+			})
+		}
+	case "tests_passed":
+		fmt.Sscanf(value, "%d", &task.TestsPassed)
+	case "tests_total":
+		fmt.Sscanf(value, "%d", &task.TestsTotal)
+	case "criteria":
+		task.AcceptanceCriteria = value
+	case "created_at":
+		if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
+			task.CreatedAt = t
+		}
+	case "created_by":
+		task.CreatedBy = value
+	case "updated_at":
+		if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
+			task.UpdatedAt = t
+		}
+	case "updated_by":
+		task.UpdatedBy = value
+	}
+}
+
+// parseCheckboxStatus converts a checkbox character to TestStatus.
+func parseCheckboxStatus(checkbox string) models.TestStatus {
+	switch checkbox {
+	case "x":
+		return models.TestStatusPassed
+	case "-":
+		return models.TestStatusFailed
+	default:
+		return models.TestStatusPending
+	}
+}
+
+// getSortedColumns returns a copy of columns sorted by order.
+// Must be called with at least a read lock held.
+func (s *TaskStore) getSortedColumns() []models.ColumnDefinition {
+	sorted := make([]models.ColumnDefinition, len(s.columns))
+	copy(sorted, s.columns)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Order < sorted[j].Order
+	})
+	return sorted
+}
+
+// getFirstColumn returns the first column by order, or nil if no columns exist.
+// Must be called with at least a read lock held.
+func (s *TaskStore) getFirstColumn() *models.ColumnDefinition {
+	if len(s.columns) == 0 {
+		return nil
+	}
+	sorted := s.getSortedColumns()
+	return &sorted[0]
+}
+
+// getLastColumn returns the last column by order, or nil if no columns exist.
+// Must be called with at least a read lock held.
+func (s *TaskStore) getLastColumn() *models.ColumnDefinition {
+	if len(s.columns) == 0 {
+		return nil
+	}
+	sorted := s.getSortedColumns()
+	return &sorted[len(sorted)-1]
+}
+
+// getMaxColumnOrder returns the highest column order value.
+// Must be called with at least a read lock held.
+func (s *TaskStore) getMaxColumnOrder() int {
+	maxOrder := -1
+	for _, col := range s.columns {
+		if col.Order > maxOrder {
+			maxOrder = col.Order
+		}
+	}
+	return maxOrder
+}
+
 // Load reads tasks from the markdown file
 func (s *TaskStore) Load() error {
 	s.mu.Lock()
@@ -57,18 +161,6 @@ func (s *TaskStore) Load() error {
 	scanner := bufio.NewScanner(file)
 	var currentColumn models.Column
 	columnOrder := 0
-
-	// Regex patterns
-	columnRegex := regexp.MustCompile(`^## (.+)$`)
-	// New nested format: - [ ] Task title (checkbox can be space, x, or -)
-	taskTitleRegex := regexp.MustCompile(`^- \[([ x-])\] (.+)$`)
-	// Metadata line: - key: value (with 2-space indent)
-	metadataRegex := regexp.MustCompile(`^  - ([^:]+): (.*)$`)
-	// Legacy format for backward compatibility
-	legacyTaskWithTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
-	legacyTaskNoTestRegex := regexp.MustCompile(`^- \[([ x-])\] \[(high|medium|low)\] (.+?) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
-	legacyOldTaskRegex := regexp.MustCompile(`^- \[([ x-])\] (.+?) \| ([^:]+):([^ ]+) \| (.+?)(?:\s*<!-- id:([a-f0-9-]+) -->)?$`)
-
 	taskOrder := 0
 	var currentTask *models.Task
 	var currentTaskLine int // 1-indexed line number where current task starts
@@ -126,44 +218,7 @@ func (s *TaskStore) Load() error {
 		// Check for metadata line (indented with 2 spaces)
 		if strings.HasPrefix(line, "  - ") && currentTask != nil {
 			if matches := metadataRegex.FindStringSubmatch(line); matches != nil {
-				key := strings.TrimSpace(matches[1])
-				value := strings.TrimSpace(matches[2])
-
-				switch key {
-				case "id":
-					currentTask.ID = value
-				case "priority":
-					currentTask.Priority = models.Priority(value)
-				case "requires_test":
-					currentTask.RequiresTest = value == "true"
-				case "test":
-					// Parse test: path/to/file:TestFunc and append to Tests array
-					parts := strings.SplitN(value, ":", 2)
-					if len(parts) == 2 {
-						currentTask.Tests = append(currentTask.Tests, models.TestSpec{
-							File: parts[0],
-							Func: parts[1],
-						})
-					}
-				case "tests_passed":
-					fmt.Sscanf(value, "%d", &currentTask.TestsPassed)
-				case "tests_total":
-					fmt.Sscanf(value, "%d", &currentTask.TestsTotal)
-				case "criteria":
-					currentTask.AcceptanceCriteria = value
-				case "created_at":
-					if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
-						currentTask.CreatedAt = t
-					}
-				case "created_by":
-					currentTask.CreatedBy = value
-				case "updated_at":
-					if t, err := time.Parse("2006-01-02T15:04:05Z", value); err == nil {
-						currentTask.UpdatedAt = t
-					}
-				case "updated_by":
-					currentTask.UpdatedBy = value
-				}
+				applyMetadata(currentTask, strings.TrimSpace(matches[1]), strings.TrimSpace(matches[2]))
 				continue
 			}
 		}
@@ -198,17 +253,10 @@ func (s *TaskStore) Load() error {
 			currentTask = &models.Task{
 				Title:      strings.TrimSpace(matches[2]),
 				Column:     currentColumn,
-				Priority:   models.PriorityMedium, // Default
-				TestStatus: models.TestStatusPending,
+				Priority:   models.PriorityMedium,
+				TestStatus: parseCheckboxStatus(matches[1]),
 			}
 			currentTaskLine = i + 1 // 1-indexed for git blame
-
-			switch matches[1] {
-			case "x":
-				currentTask.TestStatus = models.TestStatusPassed
-			case "-":
-				currentTask.TestStatus = models.TestStatusFailed
-			}
 			continue
 		}
 	}
@@ -227,10 +275,7 @@ func (s *TaskStore) Load() error {
 
 	// If changes were made, save the file
 	if columnsChanged || tasksChanged {
-		s.mu.Unlock()
-		err := s.Save()
-		s.mu.Lock()
-		if err != nil {
+		if err := s.saveLocked(); err != nil {
 			return fmt.Errorf("failed to save after normalization: %w", err)
 		}
 	}
@@ -286,12 +331,7 @@ func (s *TaskStore) ensureDefaultColumnsLocked() bool {
 	}
 
 	// Find max order to append after existing columns
-	maxOrder := -1
-	for _, col := range s.columns {
-		if col.Order > maxOrder {
-			maxOrder = col.Order
-		}
-	}
+	maxOrder := s.getMaxColumnOrder()
 
 	// Add any missing default columns
 	for _, defaultCol := range models.DefaultColumns {
@@ -326,14 +366,7 @@ func (s *TaskStore) parseLegacyTaskWithTest(matches []string, column models.Colu
 		}},
 		AcceptanceCriteria: strings.TrimSpace(matches[6]),
 		Column:             column,
-		TestStatus:         models.TestStatusPending,
-	}
-
-	switch matches[1] {
-	case "x":
-		task.TestStatus = models.TestStatusPassed
-	case "-":
-		task.TestStatus = models.TestStatusFailed
+		TestStatus:         parseCheckboxStatus(matches[1]),
 	}
 
 	return task
@@ -375,24 +408,22 @@ func (s *TaskStore) parseLegacyOldTask(matches []string, column models.Column) *
 		AcceptanceCriteria: strings.TrimSpace(matches[5]),
 		Priority:           models.PriorityMedium,
 		Column:             column,
-		TestStatus:         models.TestStatusPending,
-	}
-
-	switch matches[1] {
-	case "x":
-		task.TestStatus = models.TestStatusPassed
-	case "-":
-		task.TestStatus = models.TestStatusFailed
+		TestStatus:         parseCheckboxStatus(matches[1]),
 	}
 
 	return task
 }
 
-// Save writes all tasks to the markdown file
+// Save writes all tasks to the markdown file (acquires lock)
 func (s *TaskStore) Save() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.saveLocked()
+}
 
+// saveLocked writes all tasks to the markdown file.
+// Caller must hold at least a read lock.
+func (s *TaskStore) saveLocked() error {
 	file, err := os.Create(s.filePath)
 	if err != nil {
 		return err
@@ -403,15 +434,8 @@ func (s *TaskStore) Save() error {
 	fmt.Fprintln(file, "# Kantext Tasks")
 	fmt.Fprintln(file, "")
 
-	// Sort columns by order
-	sortedColumns := make([]models.ColumnDefinition, len(s.columns))
-	copy(sortedColumns, s.columns)
-	sort.Slice(sortedColumns, func(i, j int) bool {
-		return sortedColumns[i].Order < sortedColumns[j].Order
-	})
-
 	// Write each column section
-	for _, col := range sortedColumns {
+	for _, col := range s.getSortedColumns() {
 		tasks := s.getTasksByColumn(models.Column(col.Slug))
 
 		fmt.Fprintf(file, "## %s\n", col.Name)
@@ -439,15 +463,8 @@ func (s *TaskStore) getTasksByColumn(column models.Column) []*models.Task {
 }
 
 func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
-	checkbox := " "
-	if task.TestStatus == models.TestStatusPassed {
-		checkbox = "x"
-	} else if task.TestStatus == models.TestStatusFailed {
-		checkbox = "-"
-	}
-
 	// Write task title line
-	fmt.Fprintf(file, "- [%s] %s\n", checkbox, task.Title)
+	fmt.Fprintf(file, "- [%s] %s\n", task.CheckboxChar(), task.Title)
 
 	// Write metadata as nested bullet points
 	fmt.Fprintf(file, "  - id: %s\n", task.ID)
@@ -510,13 +527,7 @@ func (s *TaskStore) createInitialFile() error {
 func (s *TaskStore) GetColumns() []models.ColumnDefinition {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	result := make([]models.ColumnDefinition, len(s.columns))
-	copy(result, s.columns)
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Order < result[j].Order
-	})
-	return result
+	return s.getSortedColumns()
 }
 
 // CreateColumn adds a new column
@@ -533,27 +544,15 @@ func (s *TaskStore) CreateColumn(name string) (*models.ColumnDefinition, error) 
 		}
 	}
 
-	// Find max order
-	maxOrder := -1
-	for _, col := range s.columns {
-		if col.Order > maxOrder {
-			maxOrder = col.Order
-		}
-	}
-
 	newCol := models.ColumnDefinition{
 		Slug:  slug,
 		Name:  name,
-		Order: maxOrder + 1,
+		Order: s.getMaxColumnOrder() + 1,
 	}
 	s.columns = append(s.columns, newCol)
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	if err != nil {
+	if err := s.saveLocked(); err != nil {
 		// Rollback
 		s.columns = s.columns[:len(s.columns)-1]
 		return nil, err
@@ -592,11 +591,7 @@ func (s *TaskStore) UpdateColumn(slug string, newName string) (*models.ColumnDef
 			}
 
 			// Save to file
-			s.mu.Unlock()
-			err := s.Save()
-			s.mu.Lock()
-
-			if err != nil {
+			if err := s.saveLocked(); err != nil {
 				return nil, err
 			}
 
@@ -646,11 +641,7 @@ func (s *TaskStore) DeleteColumn(slug string) error {
 	s.columns = append(s.columns[:idx], s.columns[idx+1:]...)
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	return err
+	return s.saveLocked()
 }
 
 // ReorderColumns sets the order of columns
@@ -685,11 +676,7 @@ func (s *TaskStore) ReorderColumns(slugs []string) error {
 	}
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	return err
+	return s.saveLocked()
 }
 
 // GetAll returns all tasks in file order
@@ -741,14 +728,8 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 
 	// Default to first column if exists
 	column := models.Column("inbox")
-	if len(s.columns) > 0 {
-		// Sort by order and get first
-		sorted := make([]models.ColumnDefinition, len(s.columns))
-		copy(sorted, s.columns)
-		sort.Slice(sorted, func(i, j int) bool {
-			return sorted[i].Order < sorted[j].Order
-		})
-		column = models.Column(sorted[0].Slug)
+	if firstCol := s.getFirstColumn(); firstCol != nil {
+		column = models.Column(firstCol.Slug)
 	}
 
 	now := time.Now().UTC()
@@ -769,11 +750,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 	s.tasks[task.ID] = task
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	if err != nil {
+	if err := s.saveLocked(); err != nil {
 		delete(s.tasks, task.ID)
 		return nil, err
 	}
@@ -817,11 +794,7 @@ func (s *TaskStore) Update(id string, req models.UpdateTaskRequest) (*models.Tas
 	}
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	if err != nil {
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 
@@ -840,11 +813,7 @@ func (s *TaskStore) Delete(id string) error {
 	delete(s.tasks, id)
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	return err
+	return s.saveLocked()
 }
 
 // UpdateTestResult updates a task's test status and output (for single test)
@@ -860,13 +829,8 @@ func (s *TaskStore) UpdateTestResult(id string, result models.TestResult) (*mode
 	if result.Passed {
 		task.TestStatus = models.TestStatusPassed
 		// Auto-move to last column on pass
-		if len(s.columns) > 0 {
-			sorted := make([]models.ColumnDefinition, len(s.columns))
-			copy(sorted, s.columns)
-			sort.Slice(sorted, func(i, j int) bool {
-				return sorted[i].Order < sorted[j].Order
-			})
-			task.Column = models.Column(sorted[len(sorted)-1].Slug)
+		if lastCol := s.getLastColumn(); lastCol != nil {
+			task.Column = models.Column(lastCol.Slug)
 		}
 	} else {
 		task.TestStatus = models.TestStatusFailed
@@ -875,11 +839,7 @@ func (s *TaskStore) UpdateTestResult(id string, result models.TestResult) (*mode
 	task.LastOutput = result.Output
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	if err != nil {
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 
@@ -909,13 +869,8 @@ func (s *TaskStore) UpdateTestResults(id string, results models.TestResults) (*m
 	if results.AllPassed {
 		task.TestStatus = models.TestStatusPassed
 		// Auto-move to last column on pass
-		if len(s.columns) > 0 {
-			sorted := make([]models.ColumnDefinition, len(s.columns))
-			copy(sorted, s.columns)
-			sort.Slice(sorted, func(i, j int) bool {
-				return sorted[i].Order < sorted[j].Order
-			})
-			task.Column = models.Column(sorted[len(sorted)-1].Slug)
+		if lastCol := s.getLastColumn(); lastCol != nil {
+			task.Column = models.Column(lastCol.Slug)
 		}
 	} else {
 		task.TestStatus = models.TestStatusFailed
@@ -933,11 +888,7 @@ func (s *TaskStore) UpdateTestResults(id string, results models.TestResults) (*m
 	task.LastOutput = strings.Join(outputs, "\n\n")
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	if err != nil {
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 
@@ -968,8 +919,9 @@ func (s *TaskStore) Reorder(id string, column models.Column, position int) (*mod
 		return nil, fmt.Errorf("task not found: %s", id)
 	}
 
-	// Update the column
+	// Update the column and timestamp
 	task.Column = column
+	task.UpdatedAt = time.Now().UTC()
 
 	// Get all tasks in the target column (excluding the task being moved)
 	var columnTasks []*models.Task
@@ -1012,11 +964,7 @@ func (s *TaskStore) Reorder(id string, column models.Column, position int) (*mod
 	task.Order = baseOrder + position
 
 	// Save to file
-	s.mu.Unlock()
-	err := s.Save()
-	s.mu.Lock()
-
-	if err != nil {
+	if err := s.saveLocked(); err != nil {
 		return nil, err
 	}
 
@@ -1111,60 +1059,4 @@ func (s *TaskStore) getGitBlameWithContent() []BlameEntry {
 	}
 
 	return entries
-}
-
-// getGitBlameAuthors runs git blame on the tasks file and returns a map of line number to author name.
-// Returns an empty map if git blame fails (e.g., file not in git, uncommitted changes, etc.)
-func (s *TaskStore) getGitBlameAuthors() map[int]string {
-	authors := make(map[int]string)
-
-	// Get the directory containing the file for running git
-	dir := filepath.Dir(s.filePath)
-
-	// Run git blame with porcelain format for easier parsing
-	cmd := exec.Command("git", "blame", "--porcelain", s.filePath)
-	cmd.Dir = dir
-
-	output, err := cmd.Output()
-	if err != nil {
-		// Git blame failed - file might not be tracked, or no commits yet
-		return authors
-	}
-
-	// Parse porcelain output
-	// Format:
-	// <sha1> <orig-line> <final-line> [<count>]
-	// author <name>
-	// author-mail <email>
-	// ... other headers ...
-	// 	<actual line content>
-	lines := strings.Split(string(output), "\n")
-	var currentLine int
-	var currentAuthor string
-
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-
-		// SHA line starts a new blame entry
-		// Format: <sha1> <orig> <final> [<count>]
-		if len(line) >= 40 && !strings.HasPrefix(line, "\t") && !strings.Contains(line[:40], " ") {
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				// parts[2] is the final line number
-				fmt.Sscanf(parts[2], "%d", &currentLine)
-			}
-		}
-
-		// Author line
-		if strings.HasPrefix(line, "author ") {
-			currentAuthor = strings.TrimPrefix(line, "author ")
-		}
-
-		// Content line (starts with tab) marks end of headers for this line
-		if strings.HasPrefix(line, "\t") && currentLine > 0 && currentAuthor != "" {
-			authors[currentLine] = currentAuthor
-		}
-	}
-
-	return authors
 }

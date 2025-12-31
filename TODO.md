@@ -16,4 +16,6 @@ X Add an encircled '?' tooltip to the right side of various settings options to 
 X Make it so when a test is running, the circle showing number of successful tests is empty and the counter says -/x
 X Change it so that instead of an hourglass when a test is running we show a loading spinner
 * Fix the spacing between the task title and task metadata so that the spacing is the same whether the task has tests associated with it or not. Currently if the task doesnt have a test associated with it, it has less spacing than ones that do. Also investigate the placement of the play button. It is not aligned vertically with the task title.
-* Given your pdate README.md. Ensure setup instructions are correct for someone who may not have any prerequisites installed. Provide instructions for Linux, macOS, and Windows.
+X Ensure README.md in Kantext is up to date. Ensure setup instructions are correct for someone who may not have any prerequisites installed. Provide instructions for Linux, macOS, and Windows.
+X Ensure we aren't marking tasks as stale if they're in the Done column. Marking tasks as stale only happens for tasks not in the Done column.
+X Fix the issue where moving tasks to a different column isn't updating the 'updated_at' date for that task

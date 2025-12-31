@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"kantext/internal/config"
 	"kantext/internal/models"
@@ -13,6 +14,7 @@ import (
 
 // APIHandler handles REST API requests
 type APIHandler struct {
+	mu                 sync.RWMutex
 	store              *services.TaskStore
 	runner             *services.TestRunner
 	staleThresholdDays int
@@ -31,17 +33,44 @@ func NewAPIHandler(store *services.TaskStore, runner *services.TestRunner) *APIH
 
 // SetStaleThresholdDays sets the stale threshold for tasks
 func (h *APIHandler) SetStaleThresholdDays(days int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.staleThresholdDays = days
 }
 
 // SetConfigPath sets the path to the config file
 func (h *APIHandler) SetConfigPath(path string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.configPath = path
 }
 
 // SetConfig sets the config reference
 func (h *APIHandler) SetConfig(cfg *config.Config) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.config = cfg
+}
+
+// getConfig returns the current config (thread-safe read)
+func (h *APIHandler) getConfig() *config.Config {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.config
+}
+
+// getConfigPath returns the current config path (thread-safe read)
+func (h *APIHandler) getConfigPath() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.configPath
+}
+
+// getStaleThresholdDays returns the stale threshold (thread-safe read)
+func (h *APIHandler) getStaleThresholdDays() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.staleThresholdDays
 }
 
 // respondJSON writes a JSON response
@@ -317,6 +346,9 @@ func (h *APIHandler) ReorderTask(w http.ResponseWriter, r *http.Request) {
 
 // GetConfig returns client-side configuration settings
 func (h *APIHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	configData := map[string]interface{}{
 		"stale_threshold_days": h.staleThresholdDays,
 	}
@@ -356,11 +388,6 @@ type TestRunnerUpdateRequest struct {
 
 // UpdateConfig updates the application configuration
 func (h *APIHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
-	if h.configPath == "" || h.config == nil {
-		respondError(w, http.StatusBadRequest, "Configuration not available")
-		return
-	}
-
 	var req UpdateConfigRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
@@ -370,6 +397,13 @@ func (h *APIHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Validate stale_threshold_days
 	if req.StaleThresholdDays != nil && *req.StaleThresholdDays < 1 {
 		respondError(w, http.StatusBadRequest, "stale_threshold_days must be at least 1")
+		return
+	}
+
+	h.mu.Lock()
+	if h.configPath == "" || h.config == nil {
+		h.mu.Unlock()
+		respondError(w, http.StatusBadRequest, "Configuration not available")
 		return
 	}
 
@@ -398,9 +432,11 @@ func (h *APIHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Save to file
 	if err := h.config.Save(h.configPath); err != nil {
+		h.mu.Unlock()
 		respondError(w, http.StatusInternalServerError, "Failed to save config: "+err.Error())
 		return
 	}
+	h.mu.Unlock()
 
 	// Return updated config
 	h.GetConfig(w, r)

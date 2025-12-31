@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"kantext/internal/models"
 	"kantext/internal/services"
 )
+
+// Default timeout for test execution via MCP
+const mcpTestTimeout = 5 * time.Minute
 
 // ToolHandler handles MCP tool calls
 type ToolHandler struct {
@@ -547,8 +551,9 @@ func (h *ToolHandler) runTest(args map[string]interface{}) ToolResult {
 	// Mark as running
 	h.store.SetTestRunning(taskID)
 
-	// Run all tests
-	ctx := context.Background()
+	// Run all tests with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), mcpTestTimeout)
+	defer cancel()
 	results := h.runner.RunAll(ctx, task.Tests)
 
 	// Update the task with aggregated results
