@@ -1726,6 +1726,30 @@ body.resizing-panel * {
    Test Entry Styles (Multiple Tests)
    ============================================ */
 
+/* Test Entry Header (column labels) */
+.test-entry-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.test-column-label {
+    flex: 1;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted-foreground);
+}
+
+.test-column-spacer {
+    width: 2rem;
+    flex-shrink: 0;
+}
+
 .test-entry {
     display: flex;
     gap: 0.5rem;

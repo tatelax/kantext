@@ -748,11 +748,10 @@ function isModifierKeyPressed(e) {
 function initTaskModalKeyboard() {
     if (!taskModal) return;
 
-    // Set the keyboard shortcut hint text based on platform
-    const shortcutHint = taskModal.querySelector('.keyboard-shortcut-hint');
-    if (shortcutHint) {
-        shortcutHint.textContent = `${getModifierKeyName()}+↵`;
-    }
+    // Set the keyboard shortcut hint text based on platform (for all hints on page)
+    document.querySelectorAll('.keyboard-shortcut-hint').forEach(hint => {
+        hint.textContent = `${getModifierKeyName()}+↵`;
+    });
 
     // Cancel button click handler
     const cancelBtn = document.getElementById('task-modal-cancel-btn');
@@ -1877,18 +1876,20 @@ function createTestEntryHTML(test = {file: '', func: ''}, index) {
 }
 
 /**
- * Updates the visibility of the tests helper text based on test count
+ * Updates the visibility of the tests helper text and header based on test count
  */
 function updateTestsHelperVisibility() {
     const container = document.getElementById('panel-tests-container');
     const helper = document.getElementById('panel-tests-helper');
-    if (!helper) return;
+    const header = document.getElementById('panel-tests-header');
 
     const testCount = container?.querySelectorAll('.test-entry').length || 0;
     if (testCount > 0) {
-        helper.classList.remove('hidden');
+        if (helper) helper.classList.remove('hidden');
+        if (header) header.classList.remove('hidden');
     } else {
-        helper.classList.add('hidden');
+        if (helper) helper.classList.add('hidden');
+        if (header) header.classList.add('hidden');
     }
 }
 
