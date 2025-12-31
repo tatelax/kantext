@@ -2885,19 +2885,32 @@ function handleDragEnd(e) {
  * This replaces the native drag ghost for better visual control.
  */
 function createDragGhost(sourceCard, startX, startY) {
-    // Clone the card for our custom ghost
     dragGhost = sourceCard.cloneNode(true);
     dragGhost.classList.remove('dragging');
     dragGhost.classList.add('drag-ghost');
 
-    // Get the source card's dimensions and position
     const rect = sourceCard.getBoundingClientRect();
     dragGhost.style.width = rect.width + 'px';
-    dragGhost.style.left = startX - (rect.width / 2) + 'px';
-    dragGhost.style.top = startY - 20 + 'px';
 
-    // Add to document - the pickup animation handles the initial lift
+    // Start at the card's original position
+    dragGhost.style.left = rect.left + 'px';
+    dragGhost.style.top = rect.top + 'px';
+
     document.body.appendChild(dragGhost);
+
+    // Animate to cursor position after a frame
+    requestAnimationFrame(() => {
+        dragGhost.classList.add('drag-ghost-moving');
+        dragGhost.style.left = startX - (rect.width / 2) + 'px';
+        dragGhost.style.top = startY - 20 + 'px';
+
+        // Remove position transition after initial animation completes
+        setTimeout(() => {
+            if (dragGhost) {
+                dragGhost.classList.remove('drag-ghost-moving');
+            }
+        }, 150);
+    });
 }
 
 /**

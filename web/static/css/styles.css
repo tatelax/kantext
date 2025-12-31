@@ -677,13 +677,18 @@ html.dark .task-card {
     pointer-events: none;
     z-index: 10000;
     transform-origin: center center;
-    /* Smooth rotation transitions, but position updates instantly */
     transition: transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     box-shadow:
         0 20px 40px -8px rgba(0, 0, 0, 0.35),
         0 12px 24px -4px rgba(0, 0, 0, 0.2);
-    /* Initial pickup animation */
     animation: cardPickup 0.15s ease-out forwards;
+}
+
+/* Animate ghost from card position to cursor on pickup */
+.task-card.drag-ghost.drag-ghost-moving {
+    transition: left 0.15s cubic-bezier(0.2, 0, 0, 1),
+                top 0.15s cubic-bezier(0.2, 0, 0, 1),
+                transform 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 @keyframes cardPickup {
