@@ -83,6 +83,245 @@ function isTaskStale(task) {
     return diffDays > staleThresholdDays;
 }
 
+// ============================================
+// gotestsum JSON Output Support
+// ============================================
+
+/**
+ * Escape HTML special characters for safe rendering
+ * @param {string} str - String to escape
+ * @returns {string} - Escaped string
+ */
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+/**
+ * Detect if output contains go test JSON format (newline-delimited JSON)
+ * Handles output that may have non-JSON header lines (e.g., "=== file:func ===")
+ * @param {string} output - Raw test output
+ * @returns {boolean} - True if output contains go test JSON events
+ */
+function isGotestsumJSON(output) {
+    if (!output || typeof output !== 'string') return false;
+
+    // Look for JSON lines with go test event signature
+    // Skip non-JSON lines (headers, empty lines, etc.)
+    const lines = output.trim().split('\n');
+    let jsonLinesFound = 0;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        try {
+            const obj = JSON.parse(trimmed);
+            // go test -json events have Time and Action fields
+            if (obj.Time !== undefined && obj.Action !== undefined) {
+                jsonLinesFound++;
+                // Found at least 2 JSON events, this is likely go test JSON output
+                if (jsonLinesFound >= 2) {
+                    return true;
+                }
+            }
+        } catch {
+            // Not JSON, continue looking (could be a header line)
+            continue;
+        }
+    }
+
+    // If we found at least one JSON event, consider it JSON output
+    return jsonLinesFound > 0;
+}
+
+/**
+ * Parse go test JSON output into structured test data
+ * Handles output with header lines (e.g., "=== file:func ===") from test runner aggregation
+ * @param {string} output - Raw NDJSON output (possibly with header lines)
+ * @returns {Object} - Parsed test results with summary and individual tests
+ */
+function parseGotestsumOutput(output) {
+    const lines = output.trim().split('\n');
+    const events = [];
+    const parseErrors = [];
+
+    // Regex to match Kantext test runner header lines like "=== file:func ==="
+    const headerPattern = /^===\s+.+\s+===$/;
+
+    // Parse each line as JSON
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        // Skip header lines silently (they're expected from test runner aggregation)
+        if (headerPattern.test(line)) continue;
+
+        try {
+            events.push(JSON.parse(line));
+        } catch (e) {
+            parseErrors.push({ line: i + 1, content: line, error: e.message });
+        }
+    }
+
+    // Aggregate events by package and test
+    const packages = new Map(); // package -> { tests: Map, output: [], status, elapsed }
+    const testMap = new Map();  // "package:test" -> { output: [], status, elapsed }
+
+    for (const event of events) {
+        const pkg = event.Package || '';
+        const test = event.Test || '';
+        const key = test ? `${pkg}:${test}` : null;
+
+        // Initialize package if needed
+        if (pkg && !packages.has(pkg)) {
+            packages.set(pkg, { tests: new Map(), output: [], status: 'running', elapsed: 0 });
+        }
+
+        // Initialize test if needed
+        if (key && !testMap.has(key)) {
+            testMap.set(key, { package: pkg, name: test, output: [], status: 'running', elapsed: 0 });
+            if (packages.has(pkg)) {
+                packages.get(pkg).tests.set(test, testMap.get(key));
+            }
+        }
+
+        // Process event based on action
+        switch (event.Action) {
+            case 'output':
+                if (key && testMap.has(key)) {
+                    testMap.get(key).output.push(event.Output || '');
+                } else if (pkg && packages.has(pkg)) {
+                    packages.get(pkg).output.push(event.Output || '');
+                }
+                break;
+            case 'pass':
+            case 'fail':
+            case 'skip':
+                if (key && testMap.has(key)) {
+                    testMap.get(key).status = event.Action;
+                    testMap.get(key).elapsed = event.Elapsed || 0;
+                } else if (pkg && packages.has(pkg) && !test) {
+                    packages.get(pkg).status = event.Action;
+                    packages.get(pkg).elapsed = event.Elapsed || 0;
+                }
+                break;
+        }
+    }
+
+    // Calculate summary
+    let passed = 0, failed = 0, skipped = 0;
+    let totalTime = 0;
+
+    for (const [, testData] of testMap) {
+        if (testData.status === 'pass') passed++;
+        else if (testData.status === 'fail') failed++;
+        else if (testData.status === 'skip') skipped++;
+        totalTime += testData.elapsed;
+    }
+
+    return {
+        summary: { passed, failed, skipped, total: testMap.size, totalTime },
+        packages: Array.from(packages.entries()).map(([name, data]) => ({
+            name,
+            status: data.status,
+            elapsed: data.elapsed,
+            output: data.output.join(''),
+            tests: Array.from(data.tests.values())
+        })),
+        tests: Array.from(testMap.values()),
+        parseErrors,
+        raw: output
+    };
+}
+
+/**
+ * Render parsed gotestsum results as rich HTML
+ * @param {Object} parsed - Parsed gotestsum output from parseGotestsumOutput()
+ * @returns {HTMLElement} - DOM element containing the rendered results
+ */
+function renderGotestsumResults(parsed) {
+    const container = document.createElement('div');
+    container.className = 'test-results-container';
+
+    // Summary header
+    const summary = document.createElement('div');
+    summary.className = 'test-results-summary';
+    summary.innerHTML = `
+        <div class="summary-stats">
+            <span class="stat stat-passed">${parsed.summary.passed} passed</span>
+            ${parsed.summary.failed > 0 ? `<span class="stat stat-failed">${parsed.summary.failed} failed</span>` : ''}
+            ${parsed.summary.skipped > 0 ? `<span class="stat stat-skipped">${parsed.summary.skipped} skipped</span>` : ''}
+            <span class="stat stat-total">${parsed.summary.total} total</span>
+            <span class="stat stat-time">${parsed.summary.totalTime.toFixed(2)}s</span>
+        </div>
+    `;
+    container.appendChild(summary);
+
+    // Test list
+    const testList = document.createElement('div');
+    testList.className = 'test-results-list';
+
+    for (const test of parsed.tests) {
+        const testEl = document.createElement('details');
+        testEl.className = `test-result test-${test.status}`;
+
+        // Auto-expand failed tests
+        if (test.status === 'fail') {
+            testEl.setAttribute('open', '');
+        }
+
+        const statusIcon = test.status === 'pass' ? '&#10003;' :
+                          test.status === 'fail' ? '&#10007;' :
+                          '&#8722;'; // checkmark, x, or minus
+
+        testEl.innerHTML = `
+            <summary class="test-result-header">
+                <span class="test-status-icon">${statusIcon}</span>
+                <span class="test-name">${escapeHtml(test.name)}</span>
+                <span class="test-package">${escapeHtml(test.package)}</span>
+                <span class="test-elapsed">${test.elapsed.toFixed(3)}s</span>
+            </summary>
+            <div class="test-result-output">
+                <pre>${escapeHtml(test.output.join(''))}</pre>
+            </div>
+        `;
+
+        testList.appendChild(testEl);
+    }
+
+    container.appendChild(testList);
+
+    // Raw output toggle
+    const rawToggle = document.createElement('details');
+    rawToggle.className = 'raw-output-toggle';
+    rawToggle.innerHTML = `
+        <summary class="raw-output-header">View Raw Output</summary>
+        <pre class="raw-output-content">${escapeHtml(parsed.raw)}</pre>
+    `;
+    container.appendChild(rawToggle);
+
+    // Parse errors (if any)
+    if (parsed.parseErrors.length > 0) {
+        const errorsEl = document.createElement('div');
+        errorsEl.className = 'parse-errors';
+        errorsEl.innerHTML = `
+            <div class="parse-errors-header">Parse warnings (${parsed.parseErrors.length} lines)</div>
+            <ul class="parse-errors-list">
+                ${parsed.parseErrors.map(e => `<li>Line ${e.line}: ${escapeHtml(e.error)}</li>`).join('')}
+            </ul>
+        `;
+        container.appendChild(errorsEl);
+    }
+
+    return container;
+}
+
 // Update the stale badge in the task panel (if open)
 function updatePanelStaleBadge() {
     const staleBadge = document.getElementById('panel-stale-badge');
@@ -1967,8 +2206,30 @@ function openTaskModal(task = null) {
 let outputModalTask = null;
 
 function showOutput(task, results = null) {
-    testOutput.textContent = task.last_output || 'No output available';
     outputModalTask = task;
+    const output = task.last_output || 'No output available';
+
+    // Clear previous content
+    testOutput.innerHTML = '';
+
+    // Check if output is gotestsum JSON format
+    if (isGotestsumJSON(output)) {
+        try {
+            const parsed = parseGotestsumOutput(output);
+            const richUI = renderGotestsumResults(parsed);
+            testOutput.appendChild(richUI);
+            testOutput.classList.add('rich-output');
+        } catch (e) {
+            console.error('Failed to parse gotestsum output:', e);
+            // Fallback to raw text
+            testOutput.textContent = output;
+            testOutput.classList.remove('rich-output');
+        }
+    } else {
+        // Raw text output (existing behavior)
+        testOutput.textContent = output;
+        testOutput.classList.remove('rich-output');
+    }
 
     // Check if task is in Done column and tests failed
     const isInDone = task.column === 'done';

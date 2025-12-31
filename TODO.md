@@ -1,4 +1,4 @@
-* Need to fix checking who is modifying what task
+X Need to fix checking who is modifying what task
 X Change number of tasks passing or failing to use a filled circle to show what percent of tasks passed or failed as a visual indicator
 * Make logo
 X Rename "TODO" to "Inbox"
@@ -7,7 +7,7 @@ X Add a pencil icon to rename custom columns but the default ones should not be 
 X Make task view wider
 X Lower opacity on blockers behind task view and dialog boxes
 X Add red exclamation mark to the left of task titles (or left of the icon indicating the task has acceptance criteria) to stale tasks. Define what stale means in config.json. By default it will be tasks that have not been updated in more than 1 week
-* Add config menu to modify config.json from UI
+X Add config menu to modify config.json from UI
 X Add strikethru on tasks in done column
 X If a task fails to pass ask the user if they want to move it to in progress
 * Fix height of columns to match padding between bottom of screen and left of screen

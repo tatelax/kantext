@@ -3,7 +3,7 @@
   "tasks_file": "TASKS.md",
   "stale_threshold_days": 7,
   "test_runner": {
-    "command": "go test -v -count=1 -run ^{testFunc}$ {testPath}",
+    "command": "go test -json -v -count=1 -run ^{testFunc}$ {testPath}",
     "pass_string": "PASS",
     "fail_string": "FAIL",
     "no_tests_string": "no tests to run"
