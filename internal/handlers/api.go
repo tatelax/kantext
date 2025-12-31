@@ -3,9 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"sync"
 
-	"kantext/internal/config"
 	"kantext/internal/models"
 	"kantext/internal/services"
 
@@ -14,63 +12,16 @@ import (
 
 // APIHandler handles REST API requests
 type APIHandler struct {
-	mu                 sync.RWMutex
-	store              *services.TaskStore
-	runner             *services.TestRunner
-	staleThresholdDays int
-	configPath         string
-	config             *config.Config
+	store  *services.TaskStore
+	runner *services.TestRunner
 }
 
 // NewAPIHandler creates a new APIHandler
 func NewAPIHandler(store *services.TaskStore, runner *services.TestRunner) *APIHandler {
 	return &APIHandler{
-		store:              store,
-		runner:             runner,
-		staleThresholdDays: 7, // default
+		store:  store,
+		runner: runner,
 	}
-}
-
-// SetStaleThresholdDays sets the stale threshold for tasks
-func (h *APIHandler) SetStaleThresholdDays(days int) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.staleThresholdDays = days
-}
-
-// SetConfigPath sets the path to the config file
-func (h *APIHandler) SetConfigPath(path string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.configPath = path
-}
-
-// SetConfig sets the config reference
-func (h *APIHandler) SetConfig(cfg *config.Config) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.config = cfg
-}
-
-// getConfig returns the current config (thread-safe read)
-func (h *APIHandler) getConfig() *config.Config {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.config
-}
-
-// getConfigPath returns the current config path (thread-safe read)
-func (h *APIHandler) getConfigPath() string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.configPath
-}
-
-// getStaleThresholdDays returns the stale threshold (thread-safe read)
-func (h *APIHandler) getStaleThresholdDays() int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.staleThresholdDays
 }
 
 // respondJSON writes a JSON response
@@ -346,26 +297,17 @@ func (h *APIHandler) ReorderTask(w http.ResponseWriter, r *http.Request) {
 
 // GetConfig returns client-side configuration settings
 func (h *APIHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	settings := h.store.GetSettings()
 
 	configData := map[string]interface{}{
-		"stale_threshold_days": h.staleThresholdDays,
-	}
-
-	// Include full config if available
-	if h.config != nil {
-		configData["working_directory"] = h.config.WorkingDirectory
-		configData["tasks_file"] = h.config.TasksFileName
-		if configData["tasks_file"] == "" {
-			configData["tasks_file"] = config.DefaultTasksFileName
-		}
-		configData["test_runner"] = map[string]string{
-			"command":         h.config.TestRunner.GetCommand(),
-			"pass_string":     h.config.TestRunner.GetPassString(),
-			"fail_string":     h.config.TestRunner.GetFailString(),
-			"no_tests_string": h.config.TestRunner.GetNoTestsString(),
-		}
+		"stale_threshold_days": settings.GetStaleThresholdDays(),
+		"working_directory":    h.store.GetWorkingDir(),
+		"test_runner": map[string]string{
+			"command":         settings.GetTestCommand(),
+			"pass_string":     settings.GetPassString(),
+			"fail_string":     settings.GetFailString(),
+			"no_tests_string": settings.GetNoTestsString(),
+		},
 	}
 
 	respondJSON(w, http.StatusOK, configData)
@@ -373,7 +315,6 @@ func (h *APIHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 
 // UpdateConfigRequest defines the structure for config update requests
 type UpdateConfigRequest struct {
-	TasksFile          *string                  `json:"tasks_file,omitempty"`
 	StaleThresholdDays *int                     `json:"stale_threshold_days,omitempty"`
 	TestRunner         *TestRunnerUpdateRequest `json:"test_runner,omitempty"`
 }
@@ -400,43 +341,32 @@ func (h *APIHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()
-	if h.configPath == "" || h.config == nil {
-		h.mu.Unlock()
-		respondError(w, http.StatusBadRequest, "Configuration not available")
-		return
-	}
+	// Get current settings and update
+	settings := h.store.GetSettings()
 
-	// Update config in memory
-	if req.TasksFile != nil {
-		h.config.TasksFileName = *req.TasksFile
-	}
 	if req.StaleThresholdDays != nil {
-		h.config.StaleThresholdDays = *req.StaleThresholdDays
-		h.staleThresholdDays = *req.StaleThresholdDays
+		settings.StaleThresholdDays = *req.StaleThresholdDays
 	}
 	if req.TestRunner != nil {
 		if req.TestRunner.Command != nil {
-			h.config.TestRunner.Command = *req.TestRunner.Command
+			settings.TestRunner.Command = *req.TestRunner.Command
 		}
 		if req.TestRunner.PassString != nil {
-			h.config.TestRunner.PassString = *req.TestRunner.PassString
+			settings.TestRunner.PassString = *req.TestRunner.PassString
 		}
 		if req.TestRunner.FailString != nil {
-			h.config.TestRunner.FailString = *req.TestRunner.FailString
+			settings.TestRunner.FailString = *req.TestRunner.FailString
 		}
 		if req.TestRunner.NoTestsString != nil {
-			h.config.TestRunner.NoTestsString = *req.TestRunner.NoTestsString
+			settings.TestRunner.NoTestsString = *req.TestRunner.NoTestsString
 		}
 	}
 
-	// Save to file
-	if err := h.config.Save(h.configPath); err != nil {
-		h.mu.Unlock()
-		respondError(w, http.StatusInternalServerError, "Failed to save config: "+err.Error())
+	// Save to TASKS.md via TaskStore
+	if err := h.store.UpdateSettings(settings); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save settings: "+err.Error())
 		return
 	}
-	h.mu.Unlock()
 
 	// Return updated config
 	h.GetConfig(w, r)

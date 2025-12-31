@@ -8,29 +8,18 @@ import (
 	"strings"
 	"time"
 
-	"kantext/internal/config"
 	"kantext/internal/models"
 )
 
 // TestRunner executes tests using configurable commands
 type TestRunner struct {
-	workDir string
-	config  config.TestRunnerConfig
+	store *TaskStore
 }
 
-// NewTestRunner creates a new TestRunner with default configuration
-func NewTestRunner(workDir string) *TestRunner {
+// NewTestRunnerWithStore creates a new TestRunner that gets settings from TaskStore
+func NewTestRunnerWithStore(store *TaskStore) *TestRunner {
 	return &TestRunner{
-		workDir: workDir,
-		config:  config.TestRunnerConfig{},
-	}
-}
-
-// NewTestRunnerWithConfig creates a new TestRunner with custom configuration
-func NewTestRunnerWithConfig(workDir string, cfg config.TestRunnerConfig) *TestRunner {
-	return &TestRunner{
-		workDir: workDir,
-		config:  cfg,
+		store: store,
 	}
 }
 
@@ -38,6 +27,10 @@ func NewTestRunnerWithConfig(workDir string, cfg config.TestRunnerConfig) *TestR
 // testFile should be a path relative to the working directory (e.g., "internal/auth/auth_test.go")
 func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.TestResult {
 	start := time.Now()
+
+	// Get current settings from store
+	settings := r.store.GetSettings()
+	workDir := r.store.GetWorkingDir()
 
 	// Extract the directory from the test file path
 	// e.g., "internal/auth/auth_test.go" -> "internal/auth"
@@ -54,7 +47,7 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 
 	// Build the command from config template
 	// Replace placeholders: {testFunc} and {testPath}
-	cmdStr := r.config.GetCommand()
+	cmdStr := settings.GetTestCommand()
 	cmdStr = strings.ReplaceAll(cmdStr, "{testFunc}", testFunc)
 	cmdStr = strings.ReplaceAll(cmdStr, "{testPath}", testPath)
 
@@ -63,8 +56,8 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 
 	// Set the working directory if specified
-	if r.workDir != "" {
-		cmd.Dir = r.workDir
+	if workDir != "" {
+		cmd.Dir = workDir
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -85,9 +78,9 @@ func (r *TestRunner) Run(ctx context.Context, testFile, testFunc string) models.
 	}
 
 	// Get configurable strings
-	passString := r.config.GetPassString()
-	failString := r.config.GetFailString()
-	noTestsString := r.config.GetNoTestsString()
+	passString := settings.GetPassString()
+	failString := settings.GetFailString()
+	noTestsString := settings.GetNoTestsString()
 
 	if err != nil {
 		// Check if it's a test failure or an execution error

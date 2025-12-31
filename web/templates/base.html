@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=165">
+    <link rel="stylesheet" href="/static/css/styles.css?v=166">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -377,7 +377,7 @@
         <div class="dialog-content dialog-lg">
             <header class="mb-6">
                 <h2 class="text-xl font-semibold tracking-tight text-foreground">Settings</h2>
-                <p class="text-sm text-muted-foreground mt-1">Settings are saved to config.json</p>
+                <p class="text-sm text-muted-foreground mt-1">Settings are saved to TASKS.md</p>
             </header>
 
             <form id="config-form" class="space-y-6">
@@ -386,15 +386,9 @@
                     <h3 class="panel-section-title">General</h3>
                     <div class="panel-section-body space-y-4">
                         <div class="space-y-2">
-                            <label for="config-working-dir" class="text-sm font-medium text-foreground">Working Directory<span class="help-tooltip" data-tooltip="The root directory where Kantext looks for your tasks file and runs tests. This is typically your project's root folder.">?</span></label>
-                            <input type="text" id="config-working-dir" name="working_directory" class="input-field bg-muted/50" readonly disabled placeholder="/path/to/project">
-                            <p class="text-xs text-muted-foreground">Read-only. Set via command line or config.json directly.</p>
-                        </div>
-
-                        <div class="space-y-2">
-                            <label for="config-tasks-file" class="text-sm font-medium text-foreground">Tasks File Name<span class="help-tooltip" data-tooltip="The markdown file where tasks are stored.">?</span></label>
-                            <input type="text" id="config-tasks-file" name="tasks_file" class="input-field" placeholder="TASKS.md">
-                            <p class="text-xs text-muted-foreground">Name of the tasks file (relative to working directory)</p>
+                            <label class="text-sm font-medium text-foreground">Working Directory<span class="help-tooltip" data-tooltip="The root directory where Kantext looks for TASKS.md and runs tests. This is typically your project's root folder.">?</span></label>
+                            <p id="config-working-dir" class="text-sm font-mono text-muted-foreground bg-muted/50 px-3 py-2 rounded-md"></p>
+                            <p class="text-xs text-muted-foreground">Set via -workdir command line flag.</p>
                         </div>
 
                         <div class="space-y-2">
@@ -447,7 +441,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=126"></script>
+    <script src="/static/js/app.js?v=127"></script>
 </body>
 </html>
 {{end}}

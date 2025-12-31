@@ -1008,8 +1008,8 @@ function closeConfigModal() {
  * Populate the config form with current values
  */
 function populateConfigForm(config) {
-    document.getElementById('config-working-dir').value = config.working_directory || '';
-    document.getElementById('config-tasks-file').value = config.tasks_file || 'TASKS.md';
+    // Working directory is now a display-only <p> element
+    document.getElementById('config-working-dir').textContent = config.working_directory || '';
     document.getElementById('config-stale-days').value = config.stale_threshold_days || 7;
 
     if (config.test_runner) {
@@ -1026,7 +1026,6 @@ function populateConfigForm(config) {
 async function handleConfigSubmit(e) {
     e.preventDefault();
 
-    const tasksFile = document.getElementById('config-tasks-file').value.trim();
     const staleDays = parseInt(document.getElementById('config-stale-days').value);
     const testCommand = document.getElementById('config-test-command').value.trim();
     const passString = document.getElementById('config-pass-string').value.trim();
@@ -1034,7 +1033,6 @@ async function handleConfigSubmit(e) {
     const noTestsString = document.getElementById('config-no-tests-string').value.trim();
 
     const formData = {
-        tasks_file: tasksFile || undefined,
         stale_threshold_days: staleDays || undefined,
         test_runner: {
             command: testCommand || undefined,

@@ -5,8 +5,8 @@ import (
 	"flag"
 	"log"
 	"os"
+	"path/filepath"
 
-	"kantext/internal/config"
 	"kantext/internal/mcp"
 	"kantext/internal/services"
 )
@@ -16,28 +16,40 @@ func main() {
 	log.SetOutput(os.Stderr)
 
 	// Parse command line flags
-	configPath := flag.String("config", "", "Path to config.json file")
+	workDirFlag := flag.String("workdir", "", "Working directory containing TASKS.md (required)")
 	flag.Parse()
 
-	if *configPath == "" {
-		log.Fatal("config flag is required: -config /path/to/config.json")
+	if *workDirFlag == "" {
+		log.Fatal("workdir flag is required: -workdir /path/to/project")
 	}
 
-	// Load configuration
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	// Expand ~ to home directory if present
+	workDir := *workDirFlag
+	if len(workDir) > 0 && workDir[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Failed to get home directory: %v", err)
+		}
+		workDir = filepath.Join(home, workDir[1:])
 	}
 
-	// Configuration from config file
-	workDir := cfg.WorkingDirectory
-	tasksFile := cfg.TasksFile()
-	testRunnerConfig := cfg.TestRunner
+	// Convert to absolute path if relative
+	if !filepath.IsAbs(workDir) {
+		absPath, err := filepath.Abs(workDir)
+		if err != nil {
+			log.Fatalf("Failed to resolve working directory: %v", err)
+		}
+		workDir = absPath
+	}
+
+	tasksFile := filepath.Join(workDir, "TASKS.md")
 
 	// Check if tasks file exists, create if not
 	if _, err := os.Stat(tasksFile); os.IsNotExist(err) {
-		// Create initial tasks file
-		initialContent := `# Kantext Tasks
+		// Create initial tasks file with YAML front matter
+		initialContent := `---
+---
+# Kantext Tasks
 
 ## Inbox
 
@@ -51,8 +63,8 @@ func main() {
 	}
 
 	// Initialize services
-	taskStore := services.NewTaskStore(tasksFile)
-	testRunner := services.NewTestRunnerWithConfig(workDir, testRunnerConfig)
+	taskStore := services.NewTaskStore(workDir)
+	testRunner := services.NewTestRunnerWithStore(taskStore)
 
 	// Initialize tool handler
 	toolHandler := mcp.NewToolHandler(taskStore, testRunner)

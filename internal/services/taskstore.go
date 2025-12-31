@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +16,71 @@ import (
 	"kantext/internal/models"
 
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
+
+// Default settings values
+const (
+	DefaultStaleThresholdDays = 7
+	DefaultTestCommand        = "go test -v -count=1 -run ^{testFunc}$ {testPath}"
+	DefaultPassString         = "PASS"
+	DefaultFailString         = "FAIL"
+	DefaultNoTestsString      = "no tests to run"
+)
+
+// TestRunnerSettings holds test runner configuration from YAML front matter
+type TestRunnerSettings struct {
+	Command       string `yaml:"command,omitempty"`
+	PassString    string `yaml:"pass_string,omitempty"`
+	FailString    string `yaml:"fail_string,omitempty"`
+	NoTestsString string `yaml:"no_tests_string,omitempty"`
+}
+
+// Settings holds all configurable settings stored in YAML front matter
+type Settings struct {
+	StaleThresholdDays int                `yaml:"stale_threshold_days,omitempty"`
+	TestRunner         TestRunnerSettings `yaml:"test_runner,omitempty"`
+}
+
+// GetStaleThresholdDays returns the stale threshold, or default if not set
+func (s *Settings) GetStaleThresholdDays() int {
+	if s.StaleThresholdDays <= 0 {
+		return DefaultStaleThresholdDays
+	}
+	return s.StaleThresholdDays
+}
+
+// GetTestCommand returns the test command, or default if not set
+func (s *Settings) GetTestCommand() string {
+	if s.TestRunner.Command == "" {
+		return DefaultTestCommand
+	}
+	return s.TestRunner.Command
+}
+
+// GetPassString returns the pass string, or default if not set
+func (s *Settings) GetPassString() string {
+	if s.TestRunner.PassString == "" {
+		return DefaultPassString
+	}
+	return s.TestRunner.PassString
+}
+
+// GetFailString returns the fail string, or default if not set
+func (s *Settings) GetFailString() string {
+	if s.TestRunner.FailString == "" {
+		return DefaultFailString
+	}
+	return s.TestRunner.FailString
+}
+
+// GetNoTestsString returns the no tests string, or default if not set
+func (s *Settings) GetNoTestsString() string {
+	if s.TestRunner.NoTestsString == "" {
+		return DefaultNoTestsString
+	}
+	return s.TestRunner.NoTestsString
+}
 
 // Pre-compiled regex patterns for parsing task files
 var (
@@ -30,22 +95,47 @@ var (
 // TaskStore manages reading and writing tasks to a markdown file
 type TaskStore struct {
 	filePath        string
+	workingDir      string // Working directory for test execution
 	mu              sync.RWMutex
 	tasks           map[string]*models.Task
 	columns         []models.ColumnDefinition
-	taskLineNumbers map[string]int // Maps task ID to line number for git blame
+	settings        Settings                   // Settings from YAML front matter
+	taskLineNumbers map[string]int             // Maps task ID to line number for git blame
 }
 
-// NewTaskStore creates a new TaskStore
-func NewTaskStore(filePath string) *TaskStore {
+// NewTaskStore creates a new TaskStore with the specified working directory
+func NewTaskStore(workingDir string) *TaskStore {
+	filePath := filepath.Join(workingDir, "TASKS.md")
 	store := &TaskStore{
 		filePath:        filePath,
+		workingDir:      workingDir,
 		tasks:           make(map[string]*models.Task),
 		columns:         []models.ColumnDefinition{},
+		settings:        Settings{},
 		taskLineNumbers: make(map[string]int),
 	}
 	store.Load()
 	return store
+}
+
+// GetSettings returns the current settings (thread-safe)
+func (s *TaskStore) GetSettings() Settings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings
+}
+
+// GetWorkingDir returns the working directory
+func (s *TaskStore) GetWorkingDir() string {
+	return s.workingDir
+}
+
+// UpdateSettings updates the settings and saves to file
+func (s *TaskStore) UpdateSettings(settings Settings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = settings
+	return s.saveLocked()
 }
 
 // applyMetadata parses a metadata key-value pair and applies it to the task.
@@ -158,6 +248,7 @@ func (s *TaskStore) Load() error {
 
 	s.tasks = make(map[string]*models.Task)
 	s.columns = []models.ColumnDefinition{}
+	s.settings = Settings{} // Reset settings
 	scanner := bufio.NewScanner(file)
 	var currentColumn models.Column
 	columnOrder := 0
@@ -175,6 +266,33 @@ func (s *TaskStore) Load() error {
 	}
 	if err := scanner.Err(); err != nil {
 		return err
+	}
+
+	// Parse YAML front matter if present
+	startLine := 0
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		// Find closing ---
+		endLine := -1
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				endLine = i
+				break
+			}
+		}
+		if endLine > 0 {
+			// Extract YAML content
+			yamlLines := lines[1:endLine]
+			yamlContent := strings.Join(yamlLines, "\n")
+
+			// Parse YAML into settings
+			if err := yaml.Unmarshal([]byte(yamlContent), &s.settings); err != nil {
+				log.Printf("Warning: failed to parse YAML front matter: %v", err)
+				// Continue with default settings
+			}
+
+			// Start parsing markdown after front matter
+			startLine = endLine + 1
+		}
 	}
 
 	// Helper to finalize current task
@@ -195,7 +313,7 @@ func (s *TaskStore) Load() error {
 		}
 	}
 
-	for i := 0; i < len(lines); i++ {
+	for i := startLine; i < len(lines); i++ {
 		line := lines[i]
 		trimmedLine := strings.TrimSpace(line)
 
@@ -273,14 +391,39 @@ func (s *TaskStore) Load() error {
 	// Normalize tasks - fill in missing required fields
 	tasksChanged := s.normalizeTasksLocked()
 
+	// Check if settings need to be initialized with defaults
+	settingsNeedInit := s.settingsNeedInitializationLocked()
+
 	// If changes were made, save the file
-	if columnsChanged || tasksChanged {
+	if columnsChanged || tasksChanged || settingsNeedInit {
 		if err := s.saveLocked(); err != nil {
 			return fmt.Errorf("failed to save after normalization: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// settingsNeedInitializationLocked checks if settings are missing values that need defaults.
+// Returns true if settings need to be written to the file. Must be called with the lock held.
+func (s *TaskStore) settingsNeedInitializationLocked() bool {
+	// Check if any setting is missing (would use default)
+	if s.settings.StaleThresholdDays == 0 {
+		return true
+	}
+	if s.settings.TestRunner.Command == "" {
+		return true
+	}
+	if s.settings.TestRunner.PassString == "" {
+		return true
+	}
+	if s.settings.TestRunner.FailString == "" {
+		return true
+	}
+	if s.settings.TestRunner.NoTestsString == "" {
+		return true
+	}
+	return false
 }
 
 // normalizeTasksLocked checks all tasks for missing required fields and fills them in.
@@ -430,6 +573,35 @@ func (s *TaskStore) saveLocked() error {
 	}
 	defer file.Close()
 
+	// Ensure we have default settings to write
+	settingsToWrite := s.settings
+	if settingsToWrite.StaleThresholdDays == 0 {
+		settingsToWrite.StaleThresholdDays = DefaultStaleThresholdDays
+	}
+	if settingsToWrite.TestRunner.Command == "" {
+		settingsToWrite.TestRunner.Command = DefaultTestCommand
+	}
+	if settingsToWrite.TestRunner.PassString == "" {
+		settingsToWrite.TestRunner.PassString = DefaultPassString
+	}
+	if settingsToWrite.TestRunner.FailString == "" {
+		settingsToWrite.TestRunner.FailString = DefaultFailString
+	}
+	if settingsToWrite.TestRunner.NoTestsString == "" {
+		settingsToWrite.TestRunner.NoTestsString = DefaultNoTestsString
+	}
+
+	// Write YAML front matter
+	fmt.Fprintln(file, "---")
+	yamlBytes, err := yaml.Marshal(&settingsToWrite)
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+	// Trim trailing newline from YAML output since we add our own
+	yamlStr := strings.TrimSuffix(string(yamlBytes), "\n")
+	fmt.Fprintln(file, yamlStr)
+	fmt.Fprintln(file, "---")
+
 	// Write header
 	fmt.Fprintln(file, "# Kantext Tasks")
 	fmt.Fprintln(file, "")
@@ -504,23 +676,10 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 func (s *TaskStore) createInitialFile() error {
 	s.columns = make([]models.ColumnDefinition, len(models.DefaultColumns))
 	copy(s.columns, models.DefaultColumns)
+	s.settings = Settings{} // Initialize with defaults (will be filled on save)
 
-	file, err := os.Create(s.filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	content := `# Kantext Tasks
-
-## Inbox
-
-## In Progress
-
-## Done
-`
-	_, err = file.WriteString(content)
-	return err
+	// Use saveLocked to write the file with proper default settings
+	return s.saveLocked()
 }
 
 // GetColumns returns all column definitions in order

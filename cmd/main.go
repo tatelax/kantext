@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"kantext/internal/config"
 	"kantext/internal/handlers"
 	"kantext/internal/services"
 
@@ -21,49 +20,48 @@ import (
 
 func main() {
 	// Parse command line flags
-	configPath := flag.String("config", "", "Path to config.json file (optional, defaults to current directory)")
+	workDirFlag := flag.String("workdir", "", "Working directory containing TASKS.md (default: current directory)")
 	port := flag.String("port", "8081", "Port to run the server on")
 	flag.Parse()
 
-	var workDir, tasksFile string
-	var testRunnerConfig config.TestRunnerConfig
-
-	// Determine config path: explicit flag > local config.json > no config
-	cfgPath := *configPath
-	if cfgPath == "" {
-		// Check if config.json exists in current directory
-		if _, err := os.Stat("config.json"); err == nil {
-			cfgPath = "config.json"
+	// Determine working directory
+	var workDir string
+	var err error
+	if *workDirFlag != "" {
+		workDir = *workDirFlag
+		// Expand ~ to home directory if present
+		if len(workDir) > 0 && workDir[0] == '~' {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				log.Fatalf("Failed to get home directory: %v", err)
+			}
+			workDir = filepath.Join(home, workDir[1:])
 		}
-	}
-
-	if cfgPath != "" {
-		// Load configuration from file
-		cfg, err := config.Load(cfgPath)
-		if err != nil {
-			log.Fatalf("Failed to load config: %v", err)
+		// Convert to absolute path if relative
+		if !filepath.IsAbs(workDir) {
+			workDir, err = filepath.Abs(workDir)
+			if err != nil {
+				log.Fatalf("Failed to resolve working directory: %v", err)
+			}
 		}
-		workDir = cfg.WorkingDirectory
-		tasksFile = cfg.TasksFile()
-		testRunnerConfig = cfg.TestRunner
 	} else {
 		// Fall back to current working directory
-		var err error
 		workDir, err = os.Getwd()
 		if err != nil {
 			log.Fatalf("Failed to get working directory: %v", err)
 		}
-		tasksFile = filepath.Join(workDir, config.DefaultTasksFileName)
-		// testRunnerConfig uses defaults (empty struct)
+		log.Printf("Warning: No -workdir provided, using current directory: %s", workDir)
 	}
+
+	tasksFile := filepath.Join(workDir, "TASKS.md")
 
 	// Initialize WebSocket hub (must be before other services)
 	wsHub := services.NewWSHub()
 	go wsHub.Run()
 
 	// Initialize services
-	taskStore := services.NewTaskStore(tasksFile)
-	testRunner := services.NewTestRunnerWithConfig(workDir, testRunnerConfig)
+	taskStore := services.NewTaskStore(workDir)
+	testRunner := services.NewTestRunnerWithStore(taskStore)
 
 	// Initialize file watcher for real-time updates
 	fileWatcher, err := services.NewFileWatcher(tasksFile, wsHub)
@@ -83,14 +81,6 @@ func main() {
 
 	// Initialize handlers
 	apiHandler := handlers.NewAPIHandler(taskStore, testRunner)
-	if cfgPath != "" {
-		cfg, _ := config.Load(cfgPath)
-		if cfg != nil {
-			apiHandler.SetStaleThresholdDays(cfg.GetStaleThresholdDays())
-			apiHandler.SetConfigPath(cfgPath)
-			apiHandler.SetConfig(cfg)
-		}
-	}
 	wsHandler := handlers.NewWSHandler(wsHub)
 	pageHandler, err := handlers.NewPageHandler(taskStore)
 	if err != nil {
