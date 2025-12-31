@@ -1,0 +1,18 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="kg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Abstract K: Column + forward arrows representing kanban flow -->
+  <!-- Vertical stem -->
+  <rect x="4" y="3" width="6" height="26" rx="3" fill="url(#kg)"/>
+
+  <!-- Upper arrow pointing forward-up (task moving to next stage) -->
+  <path d="M12 8 L20 8 L20 4 L28 11 L20 18 L20 14 L12 14 Z" fill="url(#kg)"/>
+
+  <!-- Lower arrow pointing forward-down (continuous flow) -->
+  <path d="M12 18 L20 18 L20 14 L28 21 L20 28 L20 24 L12 24 Z" fill="url(#kg)" fill-opacity="0.5"/>
+</svg>
