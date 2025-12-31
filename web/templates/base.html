@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=130">
+    <link rel="stylesheet" href="/static/css/styles.css?v=132">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -349,8 +349,8 @@
             </div>
 
             <footer class="flex justify-end gap-3">
-                <button type="button" id="custom-dialog-cancel" class="btn-secondary">Cancel</button>
-                <button type="button" id="custom-dialog-confirm" class="btn-primary">Confirm</button>
+                <button type="button" id="custom-dialog-cancel" class="btn-secondary">Cancel<kbd class="ml-1.5 px-1.5 py-0.5 text-xs font-mono bg-black/20 dark:bg-white/20 rounded">Esc</kbd></button>
+                <button type="button" id="custom-dialog-confirm" class="btn-primary">Confirm<kbd class="ml-1.5 px-1.5 py-0.5 text-xs font-mono bg-white/20 rounded">Enter</kbd></button>
             </footer>
 
             <button type="button" class="dialog-close" aria-label="Close dialog" onclick="handleCustomDialogCancel()">
@@ -437,7 +437,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=93"></script>
+    <script src="/static/js/app.js?v=96"></script>
 </body>
 </html>
 {{end}}

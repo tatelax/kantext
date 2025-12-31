@@ -17,6 +17,10 @@ let wsReconnectDelay = 1000;
 let notificationContainer = null;
 let staleThresholdDays = 7;
 
+// Per-column sort settings: { columnSlug: { field: 'priority'|'updated'|'author'|'name', direction: 'asc'|'desc' } }
+let columnSortSettings = {};
+let openSortDropdown = null; // Track currently open dropdown
+
 let dragGhost = null;
 let lastMouseX = 0;
 let lastMouseY = 0;
@@ -75,6 +79,185 @@ function isTaskStale(task) {
     const diffDays = diffMs / (1000 * 60 * 60 * 24);
     return diffDays > staleThresholdDays;
 }
+
+// ============================================
+// Sort Dropdown Functions
+// ============================================
+
+/**
+ * Get display label for sort field
+ */
+function getSortLabel(field) {
+    const labels = {
+        'manual': 'Sort',
+        'priority': 'Priority',
+        'updated': 'Updated',
+        'author': 'Author',
+        'name': 'Name'
+    };
+    return labels[field] || 'Sort';
+}
+
+/**
+ * Toggle sort dropdown visibility
+ */
+function toggleSortDropdown(columnSlug, btn, menu) {
+    const isOpen = menu.classList.contains('open');
+
+    // Close any other open dropdowns
+    closeSortDropdowns();
+
+    if (!isOpen) {
+        btn.classList.add('open');
+        menu.classList.add('open');
+        openSortDropdown = { columnSlug, btn, menu };
+    }
+}
+
+/**
+ * Close all sort dropdowns
+ */
+function closeSortDropdowns() {
+    document.querySelectorAll('.sort-dropdown-btn.open').forEach(btn => {
+        btn.classList.remove('open');
+    });
+    document.querySelectorAll('.sort-dropdown-menu.open').forEach(menu => {
+        menu.classList.remove('open');
+    });
+    openSortDropdown = null;
+}
+
+/**
+ * Handle sort field change
+ */
+async function handleSortChange(columnSlug, field) {
+    const currentSort = columnSortSettings[columnSlug] || { field: 'manual', direction: 'asc' };
+
+    // If switching from manual to another sort, show confirmation
+    if (currentSort.field === 'manual' && field !== 'manual') {
+        closeSortDropdowns();
+        const confirmed = await showConfirmDialog(
+            'Switching to automatic sorting will override the manual card order. Manual reordering will be disabled until you switch back to "Manual" sort.',
+            {
+                title: 'Change Sort Order',
+                confirmText: 'Continue',
+                cancelText: 'Cancel'
+            }
+        );
+        if (!confirmed) {
+            return;
+        }
+    }
+
+    columnSortSettings[columnSlug] = { field, direction: currentSort.direction };
+
+    // Save to localStorage
+    saveSortSettings();
+
+    // Close dropdown and re-render
+    closeSortDropdowns();
+    renderColumns();
+    renderTasks();
+}
+
+/**
+ * Handle sort direction toggle
+ */
+function handleSortDirectionToggle(columnSlug) {
+    const currentSort = columnSortSettings[columnSlug] || { field: 'manual', direction: 'asc' };
+    const newDirection = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    columnSortSettings[columnSlug] = { field: currentSort.field, direction: newDirection };
+
+    // Save to localStorage
+    saveSortSettings();
+
+    // Close dropdown and re-render
+    closeSortDropdowns();
+    renderColumns();
+    renderTasks();
+}
+
+/**
+ * Save sort settings to localStorage
+ */
+function saveSortSettings() {
+    try {
+        localStorage.setItem('kantext-sort-settings', JSON.stringify(columnSortSettings));
+    } catch (e) {
+        console.warn('Failed to save sort settings to localStorage:', e);
+    }
+}
+
+/**
+ * Load sort settings from localStorage
+ */
+function loadSortSettings() {
+    try {
+        const saved = localStorage.getItem('kantext-sort-settings');
+        if (saved) {
+            columnSortSettings = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.warn('Failed to load sort settings from localStorage:', e);
+        columnSortSettings = {};
+    }
+}
+
+/**
+ * Sort tasks for a column based on current sort settings
+ */
+function sortColumnTasks(columnTasks, columnSlug) {
+    const sortConfig = columnSortSettings[columnSlug] || { field: 'manual', direction: 'asc' };
+
+    if (sortConfig.field === 'manual') {
+        return columnTasks; // Return original order
+    }
+
+    const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2 };
+
+    return [...columnTasks].sort((a, b) => {
+        let comparison = 0;
+
+        switch (sortConfig.field) {
+            case 'priority':
+                const aPriority = priorityOrder[a.priority || 'medium'];
+                const bPriority = priorityOrder[b.priority || 'medium'];
+                comparison = aPriority - bPriority;
+                break;
+
+            case 'updated':
+                const aDate = new Date(a.updated_at || a.created_at || 0);
+                const bDate = new Date(b.updated_at || b.created_at || 0);
+                comparison = bDate - aDate; // Default: newest first
+                break;
+
+            case 'author':
+                const aAuthor = (a.updated_by || a.created_by || '').toLowerCase();
+                const bAuthor = (b.updated_by || b.created_by || '').toLowerCase();
+                comparison = aAuthor.localeCompare(bAuthor);
+                break;
+
+            case 'name':
+                const aName = (a.title || '').toLowerCase();
+                const bName = (b.title || '').toLowerCase();
+                comparison = aName.localeCompare(bName);
+                break;
+        }
+
+        // Apply direction (for 'updated', asc means oldest first, desc means newest first)
+        if (sortConfig.field === 'updated') {
+            return sortConfig.direction === 'asc' ? -comparison : comparison;
+        }
+        return sortConfig.direction === 'desc' ? -comparison : comparison;
+    });
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.sort-dropdown-wrapper')) {
+        closeSortDropdowns();
+    }
+});
 
 /**
  * Escape HTML special characters for safe rendering
@@ -420,6 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDropIndicator();
     initDialogBackdropClose();
     initTaskPanel();
+    loadSortSettings(); // Load saved sort settings before rendering columns
     loadConfig().then(() => loadColumns()).then(() => loadTasks());
     setupEventListeners();
     console.log('[Init] Setting up WebSocket connection...');
@@ -950,11 +1134,15 @@ function showConfirmDialog(message, options = {}) {
         customDialogResolve = resolve;
         customDialogMode = 'confirm';
 
+        const cancelText = options.cancelText || 'Cancel';
+        const confirmText = options.confirmText || 'Confirm';
+        const kbdClass = 'ml-1.5 px-1.5 py-0.5 text-xs font-mono rounded';
+
         customDialogTitle.textContent = options.title || 'Confirm';
         customDialogMessage.textContent = message;
         customDialogInputWrapper.classList.add('hidden');
-        customDialogCancel.textContent = options.cancelText || 'Cancel';
-        customDialogConfirm.textContent = options.confirmText || 'Confirm';
+        customDialogCancel.innerHTML = `${escapeHtml(cancelText)}<kbd class="${kbdClass} bg-black/20 dark:bg-white/20">Esc</kbd>`;
+        customDialogConfirm.innerHTML = `${escapeHtml(confirmText)}<kbd class="${kbdClass} bg-white/20">Enter</kbd>`;
 
         // Apply destructive style if requested
         if (options.destructive) {
@@ -984,13 +1172,17 @@ function showPromptDialog(message, options = {}) {
         customDialogResolve = resolve;
         customDialogMode = 'prompt';
 
+        const cancelText = options.cancelText || 'Cancel';
+        const confirmText = options.confirmText || 'OK';
+        const kbdClass = 'ml-1.5 px-1.5 py-0.5 text-xs font-mono rounded';
+
         customDialogTitle.textContent = options.title || 'Input';
         customDialogMessage.textContent = message;
         customDialogInputWrapper.classList.remove('hidden');
         customDialogInput.value = options.defaultValue || '';
         customDialogInput.placeholder = options.placeholder || '';
-        customDialogCancel.textContent = options.cancelText || 'Cancel';
-        customDialogConfirm.textContent = options.confirmText || 'OK';
+        customDialogCancel.innerHTML = `${escapeHtml(cancelText)}<kbd class="${kbdClass} bg-black/20 dark:bg-white/20">Esc</kbd>`;
+        customDialogConfirm.innerHTML = `${escapeHtml(confirmText)}<kbd class="${kbdClass} bg-white/20">Enter</kbd>`;
         customDialogConfirm.className = 'btn-primary';
 
         customDialog.showModal();
@@ -1469,6 +1661,9 @@ function createColumnElement(col) {
     column.dataset.column = col.slug;
     column.draggable = true;
 
+    const currentSort = columnSortSettings[col.slug] || { field: 'manual', direction: 'asc' };
+    const sortLabel = getSortLabel(currentSort.field);
+
     column.innerHTML = `
         <header>
             <div class="column-header-content">
@@ -1483,6 +1678,74 @@ function createColumnElement(col) {
                     </svg>
                 </span>
                 <h2>${escapeHtml(col.name)}</h2>
+            </div>
+            <div class="sort-dropdown-wrapper" data-column="${col.slug}">
+                <button type="button" class="sort-dropdown-btn${currentSort.field !== 'manual' ? ' active' : ''}" title="Sort tasks">
+                    <svg class="sort-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m3 16 4 4 4-4"></path>
+                        <path d="M7 20V4"></path>
+                        <path d="m21 8-4-4-4 4"></path>
+                        <path d="M17 4v16"></path>
+                    </svg>
+                    <span class="sort-label">${sortLabel}</span>
+                    <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="m6 9 6 6 6-6"></path>
+                    </svg>
+                </button>
+                <div class="sort-dropdown-menu" data-column="${col.slug}">
+                    <button type="button" class="sort-dropdown-item${currentSort.field === 'manual' ? ' selected' : ''}" data-sort="manual">
+                        <span>Manual</span>
+                        <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="sort-dropdown-item${currentSort.field === 'priority' ? ' selected' : ''}" data-sort="priority">
+                        <span>Priority</span>
+                        <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="sort-dropdown-item${currentSort.field === 'updated' ? ' selected' : ''}" data-sort="updated">
+                        <span>Updated</span>
+                        <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="sort-dropdown-item${currentSort.field === 'author' ? ' selected' : ''}" data-sort="author">
+                        <span>Author</span>
+                        <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="sort-dropdown-item${currentSort.field === 'name' ? ' selected' : ''}" data-sort="name">
+                        <span>Name</span>
+                        <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </button>
+                    <div class="sort-dropdown-divider"></div>
+                    <button type="button" class="sort-direction-toggle" data-column="${col.slug}">
+                        ${currentSort.direction === 'asc' ? `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m3 8 4-4 4 4"></path>
+                            <path d="M7 4v16"></path>
+                            <path d="M17 10h4"></path>
+                            <path d="M17 14h3"></path>
+                            <path d="M17 18h2"></path>
+                        </svg>
+                        <span>Ascending</span>
+                        ` : `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m3 16 4 4 4-4"></path>
+                            <path d="M7 20V4"></path>
+                            <path d="M17 10h2"></path>
+                            <path d="M17 14h3"></path>
+                            <path d="M17 18h4"></path>
+                        </svg>
+                        <span>Descending</span>
+                        `}
+                    </button>
+                </div>
             </div>
             <div class="column-actions">
                 ${!isDefaultColumn(col.slug) ? `
@@ -1537,6 +1800,34 @@ function createColumnElement(col) {
         });
     }
 
+    // Sort dropdown
+    const sortDropdownBtn = column.querySelector('.sort-dropdown-btn');
+    const sortDropdownMenu = column.querySelector('.sort-dropdown-menu');
+    if (sortDropdownBtn && sortDropdownMenu) {
+        sortDropdownBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleSortDropdown(col.slug, sortDropdownBtn, sortDropdownMenu);
+        });
+
+        // Sort option items
+        sortDropdownMenu.querySelectorAll('.sort-dropdown-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sortField = item.dataset.sort;
+                handleSortChange(col.slug, sortField);
+            });
+        });
+
+        // Direction toggle
+        const directionToggle = sortDropdownMenu.querySelector('.sort-direction-toggle');
+        if (directionToggle) {
+            directionToggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleSortDirectionToggle(col.slug);
+            });
+        }
+    }
+
     return column;
 }
 
@@ -1575,8 +1866,11 @@ function renderTasks() {
 
         counts[columnSlug] = columnTasks.length;
 
-        // Process tasks in order
-        columnTasks.forEach((task, index) => {
+        // Apply sorting based on column settings
+        const sortedTasks = sortColumnTasks(columnTasks, columnSlug);
+
+        // Process tasks in sorted order
+        sortedTasks.forEach((task, index) => {
             let card = existingCards.get(task.id);
 
             if (card) {
