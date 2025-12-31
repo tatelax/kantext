@@ -101,6 +101,11 @@ type TaskStore struct {
 	columns         []models.ColumnDefinition
 	settings        Settings                   // Settings from YAML front matter
 	taskLineNumbers map[string]int             // Maps task ID to line number for git blame
+
+	// Async save infrastructure
+	saveChan  chan struct{}  // Channel to trigger background saves
+	saveErr   error          // Last save error (for monitoring)
+	saveErrMu sync.RWMutex   // Protects saveErr
 }
 
 // NewTaskStore creates a new TaskStore with the specified working directory
@@ -113,8 +118,13 @@ func NewTaskStore(workingDir string) *TaskStore {
 		columns:         []models.ColumnDefinition{},
 		settings:        Settings{},
 		taskLineNumbers: make(map[string]int),
+		saveChan:        make(chan struct{}, 1), // Buffered channel of 1 for coalescing saves
 	}
 	store.Load()
+
+	// Start background saver goroutine
+	go store.backgroundSaver()
+
 	return store
 }
 
@@ -564,9 +574,47 @@ func (s *TaskStore) Save() error {
 	return s.saveLocked()
 }
 
-// saveLocked writes all tasks to the markdown file.
+// saveLocked triggers an async save. Returns immediately without waiting for I/O.
 // Caller must hold at least a read lock.
 func (s *TaskStore) saveLocked() error {
+	// Non-blocking send - if channel is full, a save is already pending
+	select {
+	case s.saveChan <- struct{}{}:
+	default:
+		// Save already pending, skip
+	}
+	return nil
+}
+
+// backgroundSaver runs in a goroutine and handles file writes asynchronously.
+// This prevents blocking API responses during disk I/O.
+func (s *TaskStore) backgroundSaver() {
+	for range s.saveChan {
+		s.mu.RLock()
+		err := s.saveToFile()
+		s.mu.RUnlock()
+
+		if err != nil {
+			s.saveErrMu.Lock()
+			s.saveErr = err
+			s.saveErrMu.Unlock()
+			log.Printf("Error saving tasks: %v", err)
+		}
+	}
+}
+
+// Close stops the background saver and performs a final synchronous save.
+func (s *TaskStore) Close() error {
+	close(s.saveChan)
+	// Do one final save to ensure all changes are persisted
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.saveToFile()
+}
+
+// saveToFile writes all tasks to the markdown file synchronously.
+// Caller must hold at least a read lock.
+func (s *TaskStore) saveToFile() error {
 	file, err := os.Create(s.filePath)
 	if err != nil {
 		return err
