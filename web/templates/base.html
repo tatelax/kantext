@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=123">
+    <link rel="stylesheet" href="/static/css/styles.css?v=124">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -288,8 +288,8 @@
                 </div>
 
                 <footer class="flex justify-end gap-3 pt-4">
-                    <button type="button" class="btn-secondary cancel-btn" onclick="this.closest('dialog').close()">Cancel</button>
-                    <button type="submit" class="btn-primary">Create Task</button>
+                    <button type="button" id="task-modal-cancel-btn" class="btn-secondary cancel-btn">Cancel<kbd class="ml-1.5 px-1.5 py-0.5 text-xs font-mono bg-black/20 dark:bg-white/20 rounded">Esc</kbd></button>
+                    <button type="submit" id="task-modal-submit-btn" class="btn-primary">Create Task<kbd class="ml-1.5 px-1.5 py-0.5 text-xs font-mono bg-white/20 rounded keyboard-shortcut-hint"></kbd></button>
                 </footer>
             </form>
 
@@ -432,7 +432,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=87"></script>
+    <script src="/static/js/app.js?v=89"></script>
 </body>
 </html>
 {{end}}

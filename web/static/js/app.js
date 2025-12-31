@@ -415,6 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNotificationSystem();
     initThemeToggle();
     initConfigDialog();
+    initTaskModalKeyboard();
     initDeleteDropZone();
     initDropIndicator();
     initDialogBackdropClose();
@@ -707,6 +708,77 @@ async function handleConfigSubmit(e) {
         console.error('Failed to save config:', error);
         showNotification(error.message || 'Failed to save settings', 'error');
     }
+}
+
+/**
+ * Detect if the user is on macOS
+ * @returns {boolean} True if on macOS
+ */
+function isMacOS() {
+    // Use userAgentData if available (modern browsers)
+    if (navigator.userAgentData) {
+        return navigator.userAgentData.platform === 'macOS';
+    }
+    // Fallback to userAgent check
+    return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/**
+ * Get the platform-specific modifier key name
+ * @returns {string} 'Cmd' for Mac, 'Ctrl' for Windows/Linux
+ */
+function getModifierKeyName() {
+    return isMacOS() ? '⌘' : 'Ctrl';
+}
+
+/**
+ * Check if the platform-specific modifier key is pressed
+ * @param {KeyboardEvent} e - The keyboard event
+ * @returns {boolean} True if Cmd (Mac) or Ctrl (Windows/Linux) is pressed
+ */
+function isModifierKeyPressed(e) {
+    return isMacOS() ? e.metaKey : e.ctrlKey;
+}
+
+/**
+ * Initialize task modal keyboard shortcuts
+ * - Escape: Cancel/close dialog
+ * - Cmd+Enter (Mac) / Ctrl+Enter (Windows/Linux): Submit form
+ */
+function initTaskModalKeyboard() {
+    if (!taskModal) return;
+
+    // Set the keyboard shortcut hint text based on platform
+    const shortcutHint = taskModal.querySelector('.keyboard-shortcut-hint');
+    if (shortcutHint) {
+        shortcutHint.textContent = `${getModifierKeyName()}+↵`;
+    }
+
+    // Cancel button click handler
+    const cancelBtn = document.getElementById('task-modal-cancel-btn');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            taskModal.close();
+        });
+    }
+
+    // Keyboard shortcuts for the task modal
+    taskModal.addEventListener('keydown', (e) => {
+        // Escape to close
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            taskModal.close();
+            return;
+        }
+
+        // Cmd/Ctrl + Enter to submit
+        if (e.key === 'Enter' && isModifierKeyPressed(e)) {
+            e.preventDefault();
+            if (taskForm) {
+                taskForm.requestSubmit();
+            }
+        }
+    });
 }
 
 let deleteDropZone = null;

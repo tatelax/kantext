@@ -28,7 +28,7 @@ func NewFileWatcher(filePath string, hub *WSHub) (*FileWatcher, error) {
 		filePath: filePath,
 		hub:      hub,
 		watcher:  watcher,
-		debounce: 100 * time.Millisecond, // Debounce rapid file changes
+		debounce: 1 * time.Second, // Wait before processing to handle git operations that briefly remove files
 	}, nil
 }
 
@@ -63,7 +63,6 @@ func (fw *FileWatcher) Stop() error {
 
 func (fw *FileWatcher) watch(targetFilename string) {
 	var debounceTimer *time.Timer
-	var lastNotify time.Time
 
 	for {
 		select {
@@ -83,24 +82,17 @@ func (fw *FileWatcher) watch(targetFilename string) {
 				continue
 			}
 
-			// Debounce: if we recently notified, delay the next notification
-			now := time.Now()
-			if now.Sub(lastNotify) < fw.debounce {
-				// Reset or create debounce timer
-				if debounceTimer != nil {
-					debounceTimer.Stop()
-				}
-				debounceTimer = time.AfterFunc(fw.debounce, func() {
-					log.Printf("File changed (debounced): %s", event.Name)
-					fw.handleFileChange()
-					lastNotify = time.Now()
-				})
-				continue
+			// Always debounce: reset timer on each event
+			// This prevents acting on transient states (e.g., git checkout briefly removing the file)
+			if debounceTimer != nil {
+				debounceTimer.Stop()
 			}
 
-			log.Printf("File changed: %s (%s)", event.Name, event.Op)
-			fw.handleFileChange()
-			lastNotify = now
+			eventName := event.Name // Capture for closure
+			debounceTimer = time.AfterFunc(fw.debounce, func() {
+				log.Printf("File changed (after debounce): %s", eventName)
+				fw.handleFileChange()
+			})
 
 		case err, ok := <-fw.watcher.Errors:
 			if !ok {
