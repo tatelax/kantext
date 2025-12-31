@@ -1702,15 +1702,11 @@ function updateTaskCard(card, task) {
     const existingCriteriaIcon = card.querySelector('.task-criteria-icon');
 
     if (hasCriteria && !existingCriteriaIcon && taskHeader) {
-        // Add criteria icon
+        // Add criteria icon (book/journal icon)
         const iconHtml = `<span class="task-criteria-icon" title="Has acceptance criteria">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                <path d="M12 11h4"></path>
-                <path d="M12 16h4"></path>
-                <path d="M8 11h.01"></path>
-                <path d="M8 16h.01"></path>
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
             </svg>
         </span>`;
         taskHeader.insertAdjacentHTML('afterbegin', iconHtml);
@@ -2027,17 +2023,13 @@ function createTaskCard(task) {
            </span>`
         : '';
 
-    // Build criteria icon - show clipboard if task has acceptance criteria
+    // Build criteria icon - show book/journal if task has acceptance criteria
     const hasCriteria = task.acceptance_criteria && task.acceptance_criteria.trim() !== '';
     const criteriaIconHtml = hasCriteria
         ? `<span class="task-criteria-icon" title="Has acceptance criteria">
                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                   <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
-                   <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                   <path d="M12 11h4"></path>
-                   <path d="M12 16h4"></path>
-                   <path d="M8 11h.01"></path>
-                   <path d="M8 16h.01"></path>
+                   <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                   <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
                </svg>
            </span>`
         : '';

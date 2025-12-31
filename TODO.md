@@ -19,3 +19,5 @@ X Change it so that instead of an hourglass when a test is running we show a loa
 X Ensure README.md in Kantext is up to date. Ensure setup instructions are correct for someone who may not have any prerequisites installed. Provide instructions for Linux, macOS, and Windows.
 X Ensure we aren't marking tasks as stale if they're in the Done column. Marking tasks as stale only happens for tasks not in the Done column.
 X Fix the issue where moving tasks to a different column isn't updating the 'updated_at' date for that task
+* Animate cards moving around as you drag another card between them. Currently it is working correctly that cards create a space where the user can drop a dragged card in between. However the cards instantly move out of the way. It would be nice if they smoothly animated out of the way instead. Similar to how Trello works.
+* Go through the code base and remove any unnecessary comments that explain things that don't need explaining.
