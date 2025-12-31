@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=157">
+    <link rel="stylesheet" href="/static/css/styles.css?v=165">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -226,31 +226,23 @@
                 <div id="panel-advanced-section" class="panel-section-simple">
                     <h3 class="panel-section-title">Test Configuration</h3>
                     <div class="panel-section-body">
-                        <div class="space-y-2 mb-4">
-                            <div class="flex items-center gap-2">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="panel-requires-test" name="requires_test">
-                                    <span class="toggle-track"></span>
-                                    <span class="toggle-label">Requires passing test to complete</span>
-                                </label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="panel-requires-test" name="requires_test">
+                            <span class="toggle-track"></span>
+                            <span class="toggle-label">Requires passing test to complete</span>
+                        </label>
+                        <div id="panel-tests-section" class="hidden mt-4">
+                            <div id="panel-tests-container" class="space-y-3">
+                                <!-- Test file groups will be dynamically added here -->
                             </div>
-                            <p id="panel-tests-helper" class="text-xs text-muted-foreground hidden">Path relative to working directory (e.g., internal/auth/auth_test.go)</p>
+                            <button type="button" id="panel-add-test-btn" class="btn-secondary mt-3 w-full">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add File
+                            </button>
                         </div>
-                        <div id="panel-tests-header" class="test-entry-header hidden">
-                            <span class="test-column-label">Filename</span>
-                            <span class="test-column-label">Function Name</span>
-                            <span class="test-column-spacer"></span>
-                        </div>
-                        <div id="panel-tests-container" class="space-y-3">
-                            <!-- Tests will be dynamically added here -->
-                        </div>
-                        <button type="button" id="panel-add-test-btn" class="btn-secondary mt-3 w-full">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-block mr-1">
-                                <line x1="12" y1="5" x2="12" y2="19"></line>
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                            Add Test
-                        </button>
                     </div>
                 </div>
             </form>
@@ -260,7 +252,7 @@
                 <button type="button" id="panel-delete-btn" class="btn-destructive">Delete Task<kbd class="ml-1.5 px-1.5 py-0.5 text-sm font-mono rounded bg-white/20 delete-shortcut-hint"></kbd></button>
                 <div class="flex gap-3">
                     <button type="button" id="panel-cancel-btn" class="btn-secondary">Cancel<kbd class="ml-1.5 px-1.5 py-0.5 text-xs font-mono rounded bg-black/20 dark:bg-white/20">Esc</kbd></button>
-                    <button type="submit" id="panel-save-btn" form="panel-task-form" class="btn-primary">Save Changes</button>
+                    <button type="submit" id="panel-save-btn" form="panel-task-form" class="btn-primary">Save Changes<kbd class="ml-1.5 px-1.5 py-0.5 text-xs font-mono bg-white/20 rounded keyboard-shortcut-hint"></kbd></button>
                 </div>
             </footer>
         </div>
@@ -400,7 +392,7 @@
                         </div>
 
                         <div class="space-y-2">
-                            <label for="config-tasks-file" class="text-sm font-medium text-foreground">Tasks File Name<span class="help-tooltip" data-tooltip="The markdown file where tasks are stored. Uses a specific format with YAML frontmatter to track task metadata, status, and test configurations.">?</span></label>
+                            <label for="config-tasks-file" class="text-sm font-medium text-foreground">Tasks File Name<span class="help-tooltip" data-tooltip="The markdown file where tasks are stored.">?</span></label>
                             <input type="text" id="config-tasks-file" name="tasks_file" class="input-field" placeholder="TASKS.md">
                             <p class="text-xs text-muted-foreground">Name of the tasks file (relative to working directory)</p>
                         </div>
@@ -455,7 +447,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=118"></script>
+    <script src="/static/js/app.js?v=126"></script>
 </body>
 </html>
 {{end}}

@@ -2346,55 +2346,175 @@ function testsArrayEqual(a, b) {
 }
 
 /**
- * Creates HTML for a test entry row
+ * Groups a flat array of tests by filename
+ * @param {Array} tests - Flat array of {file, func} objects
+ * @returns {Map} - Map with filename as key, array of functions as value
  */
-function createTestEntryHTML(test = {file: '', func: ''}, index) {
+function groupTestsByFile(tests) {
+    const grouped = new Map();
+    if (!tests || !Array.isArray(tests)) return grouped;
+
+    tests.forEach(test => {
+        const file = test.file || '';
+        const func = test.func || '';
+        if (!grouped.has(file)) {
+            grouped.set(file, []);
+        }
+        grouped.get(file).push(func);
+    });
+
+    return grouped;
+}
+
+/**
+ * Creates HTML for a single function entry
+ * @param {string} funcName - The function name
+ * @param {number} funcIndex - Index within the file group
+ * @returns {string} - HTML string
+ */
+function createTestFuncEntryHTML(funcName, funcIndex) {
     return `
-        <div class="test-entry" data-index="${index}">
-            <input type="text" name="tests[${index}][file]" value="${escapeHtml(test.file || '')}"
-                   class="input-field" placeholder="path/to/test.go">
-            <input type="text" name="tests[${index}][func]" value="${escapeHtml(test.func || '')}"
-                   class="input-field" placeholder="TestFunctionName">
-            <button type="button" class="remove-test-btn" title="Remove test">&times;</button>
+        <div class="test-func-entry" data-func-index="${funcIndex}">
+            <input type="text" class="input-field test-func-input"
+                   placeholder="TestFunctionName" value="${escapeHtml(funcName || '')}">
+            <button type="button" class="remove-func-btn" title="Remove function">&times;</button>
         </div>
     `;
 }
 
 /**
- * Updates the visibility of the tests helper text and header based on test count
+ * Creates HTML for a test file group with its functions
+ * @param {string} filename - The test file path
+ * @param {Array<string>} functions - Array of function names
+ * @param {number} fileIndex - Index for this file group
+ * @returns {string} - HTML string
  */
-function updateTestsHelperVisibility() {
-    const container = document.getElementById('panel-tests-container');
-    const helper = document.getElementById('panel-tests-helper');
-    const header = document.getElementById('panel-tests-header');
+function createTestFileGroupHTML(filename, functions, fileIndex) {
+    const chevronSvg = `<svg class="chevron-icon" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const plusSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
 
-    const testCount = container?.querySelectorAll('.test-entry').length || 0;
-    if (testCount > 0) {
-        if (helper) helper.classList.remove('hidden');
-        if (header) header.classList.remove('hidden');
+    let functionsHtml = '';
+    if (functions && functions.length > 0) {
+        functions.forEach((func, funcIndex) => {
+            functionsHtml += createTestFuncEntryHTML(func, funcIndex);
+        });
     } else {
-        if (helper) helper.classList.add('hidden');
-        if (header) header.classList.add('hidden');
+        // New file with no functions yet - add one empty input
+        functionsHtml = createTestFuncEntryHTML('', 0);
+    }
+
+    return `
+        <div class="test-file-group" data-file-index="${fileIndex}">
+            <div class="test-file-header">
+                <button type="button" class="test-file-toggle" title="Collapse/Expand">
+                    ${chevronSvg}
+                </button>
+                <input type="text" class="input-field test-file-input"
+                       placeholder="path/to/test.go" value="${escapeHtml(filename || '')}">
+                <button type="button" class="remove-file-btn" title="Remove file">&times;</button>
+            </div>
+            <div class="test-functions-container">
+                ${functionsHtml}
+                <button type="button" class="add-func-btn">
+                    ${plusSvg}
+                    Add Function
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Updates the visibility of the tests section based on the requires test checkbox
+ */
+function updateTestsSectionVisibility() {
+    const testsSection = document.getElementById('panel-tests-section');
+    const requiresTestCheckbox = document.getElementById('panel-requires-test');
+
+    if (requiresTestCheckbox?.checked) {
+        testsSection?.classList.remove('hidden');
+    } else {
+        testsSection?.classList.add('hidden');
     }
 }
 
 /**
- * Attaches event listeners to test entry elements
+ * Re-indexes file groups after removal
  */
-function attachTestEntryListeners() {
-    document.querySelectorAll('.test-entry .remove-test-btn').forEach(btn => {
+function reindexFileGroups() {
+    const container = document.getElementById('panel-tests-container');
+    container?.querySelectorAll('.test-file-group').forEach((group, idx) => {
+        group.dataset.fileIndex = idx;
+    });
+}
+
+/**
+ * Re-indexes function entries within a file group
+ */
+function reindexFuncEntries(group) {
+    group?.querySelectorAll('.test-func-entry').forEach((entry, idx) => {
+        entry.dataset.funcIndex = idx;
+    });
+}
+
+/**
+ * Attaches event listeners to all test file groups and function entries
+ */
+function attachTestGroupListeners() {
+    const container = document.getElementById('panel-tests-container');
+    if (!container) return;
+
+    // Toggle collapse/expand for file groups
+    container.querySelectorAll('.test-file-toggle').forEach(btn => {
         btn.onclick = (e) => {
-            const container = document.getElementById('panel-tests-container');
-            e.target.closest('.test-entry').remove();
-            // Ensure container is truly empty (no whitespace) for CSS :empty selector
-            if (container && container.querySelectorAll('.test-entry').length === 0) {
+            const group = e.target.closest('.test-file-group');
+            group.classList.toggle('collapsed');
+        };
+    });
+
+    // Remove file group
+    container.querySelectorAll('.remove-file-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const group = e.target.closest('.test-file-group');
+            group.remove();
+            // Ensure container is truly empty for CSS :empty selector
+            if (container.querySelectorAll('.test-file-group').length === 0) {
                 container.innerHTML = '';
             }
-            updateTestsHelperVisibility();
+            reindexFileGroups();
             updatePanelSaveButton();
         };
     });
-    document.querySelectorAll('.test-entry input').forEach(input => {
+
+    // Remove function from group
+    container.querySelectorAll('.remove-func-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const entry = e.target.closest('.test-func-entry');
+            const group = entry.closest('.test-file-group');
+            entry.remove();
+            reindexFuncEntries(group);
+            // Do NOT remove file group when last function is removed
+            updatePanelSaveButton();
+        };
+    });
+
+    // Add function to file group
+    container.querySelectorAll('.add-func-btn').forEach(btn => {
+        btn.onclick = (e) => {
+            const group = e.target.closest('.test-file-group');
+            const funcCount = group.querySelectorAll('.test-func-entry').length;
+            const newHtml = createTestFuncEntryHTML('', funcCount);
+            e.target.insertAdjacentHTML('beforebegin', newHtml);
+            attachTestGroupListeners(); // Re-attach listeners
+            updatePanelSaveButton();
+            // Focus the new input
+            const newEntry = group.querySelector(`.test-func-entry[data-func-index="${funcCount}"]`);
+            newEntry?.querySelector('input')?.focus();
+        };
+    });
+
+    // Input change listeners for save button state
+    container.querySelectorAll('.test-file-input, .test-func-input').forEach(input => {
         input.removeEventListener('input', updatePanelSaveButton);
         input.addEventListener('input', updatePanelSaveButton);
     });
@@ -2916,17 +3036,23 @@ function openTaskPanel(task) {
         }
     }
 
-    // Populate tests container with test entries
+    // Populate tests container with grouped test entries
     if (testsContainer) {
         testsContainer.innerHTML = '';
         if (task.tests && task.tests.length > 0) {
-            task.tests.forEach((test, i) => {
-                testsContainer.insertAdjacentHTML('beforeend', createTestEntryHTML(test, i));
+            const grouped = groupTestsByFile(task.tests);
+            let fileIndex = 0;
+            grouped.forEach((functions, filename) => {
+                testsContainer.insertAdjacentHTML('beforeend',
+                    createTestFileGroupHTML(filename, functions, fileIndex));
+                fileIndex++;
             });
         }
-        attachTestEntryListeners();
-        updateTestsHelperVisibility();
+        attachTestGroupListeners();
     }
+
+    // Show/hide tests section based on requires_test checkbox
+    updateTestsSectionVisibility();
 
     // Ensure title is in display mode (not edit mode)
     hideTitleEditMode();
@@ -3018,17 +3144,20 @@ function getPanelFormValues() {
     const criteriaInput = document.getElementById('panel-criteria-input');
     const priorityRadio = panelTaskForm?.querySelector('input[name="panel-priority"]:checked');
 
-    // Collect tests array from test entries
+    // Collect tests array from grouped test entries
     const tests = [];
-    document.querySelectorAll('.test-entry').forEach((entry) => {
-        const fileInput = entry.querySelector('input[name$="[file]"]');
-        const funcInput = entry.querySelector('input[name$="[func]"]');
+    document.querySelectorAll('.test-file-group').forEach((group) => {
+        const fileInput = group.querySelector('.test-file-input');
         const file = fileInput?.value?.trim() || '';
-        const func = funcInput?.value?.trim() || '';
-        // Only include entries with at least one field filled
-        if (file || func) {
-            tests.push({ file, func });
-        }
+
+        group.querySelectorAll('.test-func-entry').forEach((entry) => {
+            const funcInput = entry.querySelector('.test-func-input');
+            const func = funcInput?.value?.trim() || '';
+            // Include entry if either file or func has value
+            if (file || func) {
+                tests.push({ file, func });
+            }
+        });
     });
 
     return {
@@ -3260,6 +3389,17 @@ function initTaskPanel() {
     // Form submission
     panelTaskForm?.addEventListener('submit', handlePanelFormSubmit);
 
+    // Cmd/Ctrl+Enter keyboard shortcut to save
+    panelTaskForm?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            // Only save if save button is enabled
+            if (panelSaveBtn && !panelSaveBtn.disabled) {
+                e.preventDefault();
+                panelTaskForm.requestSubmit();
+            }
+        }
+    });
+
     // Delete button
     async function handlePanelDelete() {
         if (!currentPanelTask) return;
@@ -3374,21 +3514,25 @@ function initTaskPanel() {
     priorityRadios?.forEach(radio => {
         radio.addEventListener('change', updatePanelSaveButton);
     });
-    panelRequiresTestCheckbox?.addEventListener('change', updatePanelSaveButton);
+    panelRequiresTestCheckbox?.addEventListener('change', () => {
+        updateTestsSectionVisibility();
+        updatePanelSaveButton();
+    });
 
-    // Add Test button
+    // Add File button (creates new file group with one empty function)
     const addTestBtn = document.getElementById('panel-add-test-btn');
     addTestBtn?.addEventListener('click', () => {
         const container = document.getElementById('panel-tests-container');
         if (!container) return;
-        const index = container.querySelectorAll('.test-entry').length;
-        container.insertAdjacentHTML('beforeend', createTestEntryHTML({}, index));
-        attachTestEntryListeners();
-        updateTestsHelperVisibility();
+        const fileIndex = container.querySelectorAll('.test-file-group').length;
+        // Create new file group with one empty function
+        container.insertAdjacentHTML('beforeend',
+            createTestFileGroupHTML('', [''], fileIndex));
+        attachTestGroupListeners();
         updatePanelSaveButton();
         // Focus the new file input
-        const newEntry = container.querySelector(`.test-entry[data-index="${index}"]`);
-        newEntry?.querySelector('input')?.focus();
+        const newGroup = container.querySelector(`.test-file-group[data-file-index="${fileIndex}"]`);
+        newGroup?.querySelector('.test-file-input')?.focus();
     });
 
     // Initialize panel resize functionality
