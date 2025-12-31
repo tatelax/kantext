@@ -259,6 +259,191 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// ============================================
+// Search Functions
+// ============================================
+
+let currentSearchQuery = '';
+let searchDebounceTimer = null;
+
+const searchInput = document.getElementById('search-input');
+const searchClearBtn = document.getElementById('search-clear-btn');
+
+/**
+ * Simple fuzzy match - checks if all characters in query appear in text in order
+ * @param {string} text - Text to search in
+ * @param {string} query - Search query
+ * @returns {boolean} - True if fuzzy match found
+ */
+function fuzzyMatch(text, query) {
+    if (!query) return true;
+    if (!text) return false;
+
+    const lowerText = text.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+
+    // First try exact substring match
+    if (lowerText.includes(lowerQuery)) {
+        return true;
+    }
+
+    // Then try fuzzy match (characters in order)
+    let queryIndex = 0;
+    for (let i = 0; i < lowerText.length && queryIndex < lowerQuery.length; i++) {
+        if (lowerText[i] === lowerQuery[queryIndex]) {
+            queryIndex++;
+        }
+    }
+    return queryIndex === lowerQuery.length;
+}
+
+/**
+ * Check if a task matches the search query
+ * Searches in: title, acceptance_criteria, author, priority
+ * @param {Object} task - Task object
+ * @param {string} query - Search query
+ * @returns {boolean} - True if task matches
+ */
+function taskMatchesSearch(task, query) {
+    if (!query) return true;
+
+    const searchableFields = [
+        task.title || '',
+        task.acceptance_criteria || '',
+        task.updated_by || task.created_by || '',
+        task.priority || ''
+    ];
+
+    return searchableFields.some(field => fuzzyMatch(field, query));
+}
+
+/**
+ * Apply search filter to all task cards
+ */
+function applySearchFilter() {
+    const query = currentSearchQuery.trim();
+
+    document.querySelectorAll('.task-card').forEach(card => {
+        const taskId = card.dataset.id;
+        const task = tasks.find(t => t.id === taskId);
+
+        if (task && taskMatchesSearch(task, query)) {
+            card.classList.remove('search-hidden');
+        } else {
+            card.classList.add('search-hidden');
+        }
+    });
+
+    // Update body class for visual feedback
+    if (query) {
+        document.body.classList.add('search-active');
+    } else {
+        document.body.classList.remove('search-active');
+    }
+
+    // Update task counts to show filtered counts
+    updateFilteredTaskCounts();
+}
+
+/**
+ * Update task counts to reflect search filter
+ */
+function updateFilteredTaskCounts() {
+    const query = currentSearchQuery.trim();
+
+    columns.forEach(col => {
+        const countEl = document.querySelector(`.task-count[data-column="${col.slug}"]`);
+        if (!countEl) return;
+
+        const list = document.querySelector(`.task-list[data-column="${col.slug}"]`);
+        if (!list) return;
+
+        const totalCards = list.querySelectorAll('.task-card').length;
+        const visibleCards = list.querySelectorAll('.task-card:not(.search-hidden)').length;
+
+        if (query && totalCards > 0) {
+            countEl.textContent = `${visibleCards}/${totalCards}`;
+        } else {
+            countEl.textContent = totalCards;
+        }
+    });
+}
+
+/**
+ * Handle search input change
+ */
+function handleSearchInput(e) {
+    const query = e.target.value;
+
+    // Debounce the search
+    if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+    }
+
+    searchDebounceTimer = setTimeout(() => {
+        currentSearchQuery = query;
+        applySearchFilter();
+    }, 150);
+}
+
+/**
+ * Clear the search input
+ */
+function clearSearch() {
+    if (searchInput) {
+        searchInput.value = '';
+        currentSearchQuery = '';
+        applySearchFilter();
+        searchInput.focus();
+    }
+}
+
+/**
+ * Initialize search functionality
+ */
+function initSearch() {
+    if (searchInput) {
+        searchInput.addEventListener('input', handleSearchInput);
+
+        // Handle Escape to clear search
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (searchInput.value) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    clearSearch();
+                } else {
+                    searchInput.blur();
+                }
+            }
+        });
+    }
+
+    if (searchClearBtn) {
+        searchClearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            clearSearch();
+        });
+    }
+
+    // Global "/" shortcut to focus search
+    document.addEventListener('keydown', (e) => {
+        // Don't trigger if typing in an input, textarea, or contenteditable
+        const target = e.target;
+        const isEditing = target.tagName === 'INPUT' ||
+                          target.tagName === 'TEXTAREA' ||
+                          target.isContentEditable;
+
+        // Don't trigger if a dialog is open
+        const dialogOpen = document.querySelector('dialog[open]');
+
+        if (e.key === '/' && !isEditing && !dialogOpen) {
+            e.preventDefault();
+            searchInput?.focus();
+        }
+    });
+}
+
 /**
  * Escape HTML special characters for safe rendering
  * @param {string} str - String to escape
@@ -603,6 +788,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDropIndicator();
     initDialogBackdropClose();
     initTaskPanel();
+    initSearch();
     loadSortSettings(); // Load saved sort settings before rendering columns
     loadConfig().then(() => loadColumns()).then(() => loadTasks());
     setupEventListeners();
@@ -1905,6 +2091,11 @@ function renderTasks() {
         const countEl = document.querySelector(`.task-count[data-column="${column}"]`);
         if (countEl) countEl.textContent = count;
     });
+
+    // Reapply search filter if active
+    if (currentSearchQuery) {
+        applySearchFilter();
+    }
 }
 
 /**
