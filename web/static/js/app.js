@@ -3246,6 +3246,11 @@ async function handlePanelFormSubmit(e) {
  * Initializes task panel event listeners
  */
 function initTaskPanel() {
+    // Set delete shortcut hint based on platform
+    document.querySelectorAll('.delete-shortcut-hint').forEach(hint => {
+        hint.textContent = isMacOS() ? '⌘⌫' : 'Ctrl+Bksp';
+    });
+
     // Close button
     panelCloseBtn?.addEventListener('click', tryCloseTaskPanel);
 
@@ -3256,7 +3261,7 @@ function initTaskPanel() {
     panelTaskForm?.addEventListener('submit', handlePanelFormSubmit);
 
     // Delete button
-    panelDeleteBtn?.addEventListener('click', async () => {
+    async function handlePanelDelete() {
         if (!currentPanelTask) return;
 
         const confirmed = await showConfirmDialog('Are you sure you want to delete this task?', {
@@ -3277,7 +3282,9 @@ function initTaskPanel() {
                 showNotification('Failed to delete task. Please try again.', 'error');
             }
         }
-    });
+    }
+
+    panelDeleteBtn?.addEventListener('click', handlePanelDelete);
 
     // Copy task ID button
     const copyBtn = document.getElementById('copy-panel-task-id-btn');
@@ -3324,6 +3331,21 @@ function initTaskPanel() {
             if (editEl?.classList.contains('hidden')) {
                 await tryCloseTaskPanel();
             }
+        }
+    });
+
+    // Modifier+Backspace to delete task (Cmd+Backspace on Mac, Ctrl+Backspace on others)
+    document.addEventListener('keydown', async (e) => {
+        if (e.key === 'Backspace' && isModifierKeyPressed(e) && taskPanel?.classList.contains('open')) {
+            // Don't trigger if typing in an input, textarea, or contenteditable
+            const target = e.target;
+            const isEditing = target.tagName === 'INPUT' ||
+                              target.tagName === 'TEXTAREA' ||
+                              target.isContentEditable;
+            if (isEditing) return;
+
+            e.preventDefault();
+            await handlePanelDelete();
         }
     });
 

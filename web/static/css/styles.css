@@ -1220,7 +1220,8 @@ html.dark .task-card.no-test {
     pointer-events: auto;
     animation: notificationSlideIn 0.3s ease-out;
     box-shadow: 0 4px 12px var(--shadow-color);
-    max-width: 320px;
+    max-width: min(480px, calc(100vw - 2rem));
+    word-break: break-word;
     cursor: pointer;
 }
 
