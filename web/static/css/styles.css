@@ -2360,7 +2360,7 @@ body.resizing-panel * {
     display: flex;
     align-items: center;
     width: 100%;
-    max-width: 384px;
+    max-width: 442px;
 }
 
 .search-icon {
