@@ -241,67 +241,138 @@ function parseGotestsumOutput(output) {
 }
 
 /**
- * Render parsed gotestsum results as rich HTML
- * @param {Object} parsed - Parsed gotestsum output from parseGotestsumOutput()
+ * SVG icons for test results
+ */
+const testResultIcons = {
+    pass: `<svg class="test-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    fail: `<svg class="test-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    skip: `<svg class="test-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M5 8h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    chevron: `<svg class="chevron-icon" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    clock: `<svg class="meta-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    code: `<svg class="meta-icon" viewBox="0 0 16 16" fill="none"><path d="M10 4l2 4-2 4M6 4L4 8l2 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+};
+
+/**
+ * Render parsed go test results as rich HTML
+ * @param {Object} parsed - Parsed output from parseGotestsumOutput()
  * @returns {HTMLElement} - DOM element containing the rendered results
  */
 function renderGotestsumResults(parsed) {
     const container = document.createElement('div');
     container.className = 'test-results-container';
 
-    // Summary header
+    const { passed, failed, skipped, total, totalTime } = parsed.summary;
+    const allPassed = failed === 0 && skipped === 0;
+
+    // Summary card - compact version
     const summary = document.createElement('div');
-    summary.className = 'test-results-summary';
+    summary.className = `test-results-summary ${allPassed ? 'all-passed' : failed > 0 ? 'has-failures' : ''}`;
+
+    // Build status message
+    let statusMessage;
+    if (allPassed) {
+        statusMessage = total === 1 ? '1 test passed' : `All ${total} tests passed`;
+    } else if (failed > 0) {
+        statusMessage = `${failed} out of ${total} test${total !== 1 ? 's' : ''} failed`;
+    } else {
+        statusMessage = `${total} test${total !== 1 ? 's' : ''} completed`;
+    }
+
     summary.innerHTML = `
-        <div class="summary-stats">
-            <span class="stat stat-passed">${parsed.summary.passed} passed</span>
-            ${parsed.summary.failed > 0 ? `<span class="stat stat-failed">${parsed.summary.failed} failed</span>` : ''}
-            ${parsed.summary.skipped > 0 ? `<span class="stat stat-skipped">${parsed.summary.skipped} skipped</span>` : ''}
-            <span class="stat stat-total">${parsed.summary.total} total</span>
-            <span class="stat stat-time">${parsed.summary.totalTime.toFixed(2)}s</span>
+        <div class="summary-header">
+            <div class="summary-title">
+                ${allPassed ? testResultIcons.pass : failed > 0 ? testResultIcons.fail : testResultIcons.skip}
+                <span>${statusMessage}</span>
+            </div>
+            <div class="summary-time">
+                ${testResultIcons.clock}
+                <span>${totalTime.toFixed(2)}s</span>
+            </div>
         </div>
     `;
     container.appendChild(summary);
 
-    // Test list
-    const testList = document.createElement('div');
-    testList.className = 'test-results-list';
+    // Test list with better structure
+    if (parsed.tests.length > 0) {
+        const testSection = document.createElement('div');
+        testSection.className = 'test-results-section';
 
-    for (const test of parsed.tests) {
-        const testEl = document.createElement('details');
-        testEl.className = `test-result test-${test.status}`;
-
-        // Auto-expand failed tests
-        if (test.status === 'fail') {
-            testEl.setAttribute('open', '');
-        }
-
-        const statusIcon = test.status === 'pass' ? '&#10003;' :
-                          test.status === 'fail' ? '&#10007;' :
-                          '&#8722;'; // checkmark, x, or minus
-
-        testEl.innerHTML = `
-            <summary class="test-result-header">
-                <span class="test-status-icon">${statusIcon}</span>
-                <span class="test-name">${escapeHtml(test.name)}</span>
-                <span class="test-package">${escapeHtml(test.package)}</span>
-                <span class="test-elapsed">${test.elapsed.toFixed(3)}s</span>
-            </summary>
-            <div class="test-result-output">
-                <pre>${escapeHtml(test.output.join(''))}</pre>
+        // Section header with expand/collapse all
+        const sectionHeader = document.createElement('div');
+        sectionHeader.className = 'test-section-header';
+        sectionHeader.innerHTML = `
+            <span class="section-title">Test Results</span>
+            <div class="section-actions">
+                <button type="button" class="expand-all-btn" title="Expand all">
+                    <svg viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" class="collapse-all-btn" title="Collapse all">
+                    <svg viewBox="0 0 16 16" fill="none"><path d="M4 10l4-4 4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
             </div>
         `;
+        testSection.appendChild(sectionHeader);
 
-        testList.appendChild(testEl);
+        // Add event listeners for expand/collapse
+        sectionHeader.querySelector('.expand-all-btn').addEventListener('click', () => {
+            testSection.querySelectorAll('details.test-result').forEach(d => d.open = true);
+        });
+        sectionHeader.querySelector('.collapse-all-btn').addEventListener('click', () => {
+            testSection.querySelectorAll('details.test-result').forEach(d => d.open = false);
+        });
+
+        const testList = document.createElement('div');
+        testList.className = 'test-results-list';
+
+        // Sort: failed first, then skipped, then passed
+        const sortedTests = [...parsed.tests].sort((a, b) => {
+            const order = { fail: 0, skip: 1, pass: 2, running: 3 };
+            return (order[a.status] || 3) - (order[b.status] || 3);
+        });
+
+        for (const test of sortedTests) {
+            const testEl = document.createElement('details');
+            testEl.className = `test-result test-${test.status}`;
+
+            // Auto-expand failed tests
+            if (test.status === 'fail') {
+                testEl.setAttribute('open', '');
+            }
+
+            const icon = testResultIcons[test.status] || testResultIcons.skip;
+            const shortPackage = test.package.split('/').slice(-2).join('/');
+
+            testEl.innerHTML = `
+                <summary class="test-result-header">
+                    <span class="test-chevron">${testResultIcons.chevron}</span>
+                    <span class="test-status-icon">${icon}</span>
+                    <span class="test-name">${escapeHtml(test.name)}</span>
+                    <span class="test-meta">
+                        <span class="test-package" title="${escapeHtml(test.package)}">${escapeHtml(shortPackage)}</span>
+                        <span class="test-elapsed">${test.elapsed >= 1 ? test.elapsed.toFixed(2) + 's' : Math.round(test.elapsed * 1000) + 'ms'}</span>
+                    </span>
+                </summary>
+                <div class="test-result-output">
+                    <pre>${escapeHtml(test.output.join(''))}</pre>
+                </div>
+            `;
+
+            testList.appendChild(testEl);
+        }
+
+        testSection.appendChild(testList);
+        container.appendChild(testSection);
     }
 
-    container.appendChild(testList);
-
-    // Raw output toggle
+    // Raw output toggle (collapsed by default, more subtle)
     const rawToggle = document.createElement('details');
     rawToggle.className = 'raw-output-toggle';
     rawToggle.innerHTML = `
-        <summary class="raw-output-header">View Raw Output</summary>
+        <summary class="raw-output-header">
+            ${testResultIcons.code}
+            <span>View raw JSON output</span>
+            <span class="chevron">${testResultIcons.chevron}</span>
+        </summary>
         <pre class="raw-output-content">${escapeHtml(parsed.raw)}</pre>
     `;
     container.appendChild(rawToggle);
@@ -311,10 +382,10 @@ function renderGotestsumResults(parsed) {
         const errorsEl = document.createElement('div');
         errorsEl.className = 'parse-errors';
         errorsEl.innerHTML = `
-            <div class="parse-errors-header">Parse warnings (${parsed.parseErrors.length} lines)</div>
-            <ul class="parse-errors-list">
-                ${parsed.parseErrors.map(e => `<li>Line ${e.line}: ${escapeHtml(e.error)}</li>`).join('')}
-            </ul>
+            <div class="parse-errors-header">
+                <svg viewBox="0 0 16 16" fill="none" class="warning-icon"><path d="M8 1l7 13H1L8 1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6v3M8 11.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <span>${parsed.parseErrors.length} line${parsed.parseErrors.length !== 1 ? 's' : ''} couldn't be parsed</span>
+            </div>
         `;
         container.appendChild(errorsEl);
     }

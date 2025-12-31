@@ -11,4 +11,4 @@ X Add config menu to modify config.json from UI
 X Add strikethru on tasks in done column
 X If a task fails to pass ask the user if they want to move it to in progress
 * Fix height of columns to match padding between bottom of screen and left of screen
-* Detect if the test output is in JSON. If so, display the JSON in a nice way in the test results screen.
+X Detect if the test output is in JSON. If so, display the JSON in a nice way in the test results screen.
