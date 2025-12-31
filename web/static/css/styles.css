@@ -522,7 +522,7 @@ details[open] .details-arrow {
     max-height: calc(100vh - 153px);
     display: flex;
     flex-direction: column;
-    box-shadow: 0 4px 20px -5px hsla(0, 0%, 0%, 0.32);
+    box-shadow: 0 4px 20px -5px hsla(0, 0%, 0%, 0.15);
     backdrop-filter: blur(8px);
 }
 
@@ -648,6 +648,13 @@ html.dark .task-card {
 
 .task-card:hover {
     box-shadow: 0 0 20px -2px hsla(0, 0%, 100%, 0.15);
+}
+
+/* Selected task card - shown when panel is open */
+.task-card.selected {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px hsla(217.2, 91.2%, 59.8%, 0.2);
 }
 
 .task-card.dragging {
@@ -1032,17 +1039,17 @@ html.dark .task-card.no-test {
     margin-right: 0.25rem;
 }
 
-.priority-high {
+.task-priority.priority-high {
     background-color: hsla(0, 62.8%, 50.6%, 0.2);
     color: hsl(0 62.8% 50.6%);
 }
 
-.priority-medium {
+.task-priority.priority-medium {
     background-color: hsla(45, 93%, 47%, 0.2);
     color: hsl(45 93% 47%);
 }
 
-.priority-low {
+.task-priority.priority-low {
     background-color: hsla(217.2, 91.2%, 59.8%, 0.2);
     color: hsl(217.2 91.2% 59.8%);
 }
@@ -1518,8 +1525,7 @@ body > header {
     position: fixed;
     inset: 0;
     z-index: 40;
-    background-color: var(--dialog-backdrop);
-    backdrop-filter: blur(4px);
+    background-color: transparent;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s ease;
@@ -1527,7 +1533,7 @@ body > header {
 
 .task-panel-overlay.visible {
     opacity: 1;
-    pointer-events: auto;
+    pointer-events: none;  /* Don't block interaction with underlying content */
 }
 
 .task-panel {

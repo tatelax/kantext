@@ -2319,11 +2319,11 @@ function createTestProgressHTML(task) {
 
 /**
  * Extract first name from a full name (e.g., "Tate McCormick" -> "Tate")
- * Returns "Uncommitted" for uncommitted tasks (empty author or "Not Committed Yet")
+ * Returns "Uncommitted Task" for uncommitted tasks (empty author or "Not Committed Yet")
  */
 function getFirstName(fullName) {
     // isUncommitted handles both empty and "Not Committed Yet"
-    if (isUncommitted(fullName)) return 'Uncommitted';
+    if (isUncommitted(fullName)) return 'Uncommitted Task';
     return fullName.split(' ')[0];
 }
 
@@ -2520,10 +2520,15 @@ function createTaskCard(task) {
     card.addEventListener('dragend', handleDragEnd);
 
     // Click on card (not title) to open task panel
-    card.addEventListener('click', (e) => {
+    card.addEventListener('click', async (e) => {
         // Only open panel if click wasn't on title or action buttons
         if (!e.target.classList.contains('task-title-clickable') &&
             !e.target.closest('.task-actions')) {
+            // Check for unsaved changes before switching tasks
+            if (taskPanel?.classList.contains('open') && currentPanelTask?.id !== task.id) {
+                const canClose = await tryCloseTaskPanel();
+                if (!canClose) return;
+            }
             openTaskPanel(task);
         }
     });
@@ -2939,7 +2944,7 @@ function openTaskPanel(task) {
         acceptance_criteria: task.acceptance_criteria || '',
         priority: task.priority || 'medium',
         requires_test: task.requires_test || false,
-        tests: JSON.stringify(task.tests || [])
+        tests: (task.tests || []).map(t => ({ file: t.file || '', func: t.func || '' }))
     };
 
     // Disable save button initially (no changes yet)
@@ -2948,6 +2953,14 @@ function openTaskPanel(task) {
     // Show panel with animation
     taskPanelOverlay?.classList.add('visible');
     taskPanel.classList.add('open');
+
+    // Add selected class to the corresponding task card
+    const taskCard = document.querySelector(`.task-card[data-id="${task.id}"]`);
+    if (taskCard) {
+        // Remove selected from any previously selected card
+        document.querySelectorAll('.task-card.selected').forEach(c => c.classList.remove('selected'));
+        taskCard.classList.add('selected');
+    }
 
     // Focus the criteria textarea after animation
     setTimeout(() => criteriaInput?.focus(), 300);
@@ -2961,14 +2974,40 @@ function closeTaskPanel() {
 
     taskPanel.classList.remove('open');
     taskPanelOverlay?.classList.remove('visible');
+
+    // Remove selected class from any selected task cards
+    document.querySelectorAll('.task-card.selected').forEach(c => c.classList.remove('selected'));
+
     currentPanelTask = null;
     panelOriginalValues = null;
 
-    // Reset form and title edit mode after animation
+    // Reset form and title edit mode after animation (only if panel is still closed)
     setTimeout(() => {
-        panelTaskForm?.reset();
-        hideTitleEditMode();
+        if (!taskPanel?.classList.contains('open')) {
+            panelTaskForm?.reset();
+            hideTitleEditMode();
+        }
     }, 300);
+}
+
+/**
+ * Attempts to close the task panel, prompting for confirmation if there are unsaved changes.
+ * Returns true if panel was closed, false if user cancelled.
+ */
+async function tryCloseTaskPanel() {
+    if (!taskPanel?.classList.contains('open')) return true;
+
+    if (panelHasChanges()) {
+        const confirmed = await showConfirmDialog('You have unsaved changes. Discard them?', {
+            title: 'Discard Changes',
+            confirmText: 'Discard',
+            destructive: true
+        });
+        if (!confirmed) return false;
+    }
+
+    closeTaskPanel();
+    return true;
 }
 
 /**
@@ -3002,19 +3041,31 @@ function getPanelFormValues() {
 }
 
 /**
+ * Compares two test arrays for equality
+ */
+function testsAreEqual(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i].file !== b[i].file || a[i].func !== b[i].func) return false;
+    }
+    return true;
+}
+
+/**
  * Checks if the panel form has unsaved changes
  */
 function panelHasChanges() {
     if (!panelOriginalValues) return false;
 
     const current = getPanelFormValues();
-    const currentTestsJson = JSON.stringify(current.tests);
 
     return current.title !== panelOriginalValues.title ||
            current.acceptance_criteria !== panelOriginalValues.acceptance_criteria ||
            current.priority !== panelOriginalValues.priority ||
            current.requires_test !== panelOriginalValues.requires_test ||
-           currentTestsJson !== panelOriginalValues.tests;
+           !testsAreEqual(current.tests, panelOriginalValues.tests);
 }
 
 /**
@@ -3196,13 +3247,10 @@ async function handlePanelFormSubmit(e) {
  */
 function initTaskPanel() {
     // Close button
-    panelCloseBtn?.addEventListener('click', closeTaskPanel);
+    panelCloseBtn?.addEventListener('click', tryCloseTaskPanel);
 
     // Cancel button
-    panelCancelBtn?.addEventListener('click', closeTaskPanel);
-
-    // Overlay click to close
-    taskPanelOverlay?.addEventListener('click', closeTaskPanel);
+    panelCancelBtn?.addEventListener('click', tryCloseTaskPanel);
 
     // Form submission
     panelTaskForm?.addEventListener('submit', handlePanelFormSubmit);
@@ -3269,14 +3317,31 @@ function initTaskPanel() {
     });
 
     // Escape key to close panel (only if not editing title)
-    document.addEventListener('keydown', (e) => {
+    document.addEventListener('keydown', async (e) => {
         if (e.key === 'Escape' && taskPanel?.classList.contains('open')) {
             const editEl = document.getElementById('panel-title-edit');
             // Only close panel if title edit mode is hidden
             if (editEl?.classList.contains('hidden')) {
-                closeTaskPanel();
+                await tryCloseTaskPanel();
             }
         }
+    });
+
+    // Click outside panel to close it
+    document.addEventListener('click', async (e) => {
+        if (!taskPanel?.classList.contains('open')) return;
+
+        // Don't close if clicking inside the panel
+        if (taskPanel.contains(e.target)) return;
+
+        // Don't close if clicking on a task card (its handler will open that task)
+        if (e.target.closest('.task-card')) return;
+
+        // Don't close if clicking on interactive elements (buttons, inputs, dialogs, etc.)
+        if (e.target.closest('button, a, input, textarea, select, dialog, [role="button"]')) return;
+
+        // Close the panel for clicks on empty areas (board background, columns, etc.)
+        await tryCloseTaskPanel();
     });
 
     // Change detection for form inputs

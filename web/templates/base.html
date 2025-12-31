@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=136">
+    <link rel="stylesheet" href="/static/css/styles.css?v=149">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -153,7 +153,7 @@
                         </div>
                     </div>
                 </div>
-                <div id="panel-task-id-wrapper" class="flex items-center gap-2 mt-1">
+                <div id="panel-task-id-wrapper" class="flex items-center gap-2 mt-1 ml-10">
                     <p id="panel-task-id" class="text-sm text-muted-foreground font-mono"></p>
                     <button type="button" id="copy-panel-task-id-btn" class="copy-btn" title="Copy task ID">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -162,33 +162,32 @@
                         </svg>
                     </button>
                 </div>
-                <div id="panel-stale-badge" class="stale-badge hidden">
+                <div id="panel-stale-badge" class="stale-badge hidden ml-10">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
                     </svg>
                     <span>Stale</span>
                 </div>
-            </header>
-
-            <!-- Task Metadata -->
-            <div id="panel-task-metadata" class="hidden mx-6 mt-4 p-4 rounded-lg bg-muted/50 border border-border">
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div id="panel-metadata-created" class="hidden">
-                        <span class="text-muted-foreground">Created</span>
-                        <p class="text-foreground mt-0.5">
-                            <span id="panel-metadata-created-at"></span>
-                            <span id="panel-metadata-created-by" class="text-muted-foreground"></span>
-                        </p>
-                    </div>
-                    <div id="panel-metadata-updated" class="hidden">
-                        <span class="text-muted-foreground">Last Modified</span>
-                        <p class="text-foreground mt-0.5">
-                            <span id="panel-metadata-updated-at"></span>
-                            <span id="panel-metadata-updated-by" class="text-muted-foreground"></span>
-                        </p>
+                <!-- Task Metadata -->
+                <div id="panel-task-metadata" class="hidden ml-10 mt-3 pt-3 border-t border-border">
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div id="panel-metadata-created" class="hidden">
+                            <span class="text-muted-foreground text-xs">Created</span>
+                            <p class="text-foreground mt-0.5">
+                                <span id="panel-metadata-created-at"></span>
+                                <span id="panel-metadata-created-by" class="text-muted-foreground"></span>
+                            </p>
+                        </div>
+                        <div id="panel-metadata-updated" class="hidden">
+                            <span class="text-muted-foreground text-xs">Last Modified</span>
+                            <p class="text-foreground mt-0.5">
+                                <span id="panel-metadata-updated-at"></span>
+                                <span id="panel-metadata-updated-by" class="text-muted-foreground"></span>
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </header>
 
             <!-- Task Form -->
             <form id="panel-task-form" class="task-panel-form">
@@ -258,7 +257,7 @@
 
             <!-- Panel Footer -->
             <footer class="task-panel-footer">
-                <button type="button" id="panel-delete-btn" class="btn-destructive">Delete</button>
+                <button type="button" id="panel-delete-btn" class="btn-destructive">Delete Task</button>
                 <div class="flex gap-3">
                     <button type="button" id="panel-cancel-btn" class="btn-secondary">Cancel</button>
                     <button type="submit" id="panel-save-btn" form="panel-task-form" class="btn-primary">Save Changes</button>
@@ -456,7 +455,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=98"></script>
+    <script src="/static/js/app.js?v=110"></script>
 </body>
 </html>
 {{end}}
