@@ -250,7 +250,7 @@ function renderGotestsumResults(parsed) {
     const container = document.createElement('div');
     container.className = 'test-results-container';
 
-    const { passed, failed, skipped, total, totalTime } = parsed.summary;
+    const { failed, skipped, total, totalTime } = parsed.summary;
     const allPassed = failed === 0 && skipped === 0;
 
     // Summary card - compact version
@@ -438,27 +438,32 @@ function initDropIndicator() {
 function showDropIndicator(taskList, index) {
     if (!dropIndicator || !taskList) return;
 
-    // Get all cards in the list (excluding the dragged one and the indicator)
     const cards = Array.from(taskList.querySelectorAll('.task-card:not(.dragging)'));
 
-    // Remove indicator from current position if it's elsewhere
     if (dropIndicator.parentElement && dropIndicator.parentElement !== taskList) {
         dropIndicator.classList.remove('visible');
         dropIndicator.remove();
     }
 
-    // Insert indicator at the correct position
     if (index >= cards.length) {
-        // Insert at the end
         taskList.appendChild(dropIndicator);
     } else {
-        // Insert before the card at this index
         taskList.insertBefore(dropIndicator, cards[index]);
     }
 
-    // Trigger animation
     requestAnimationFrame(() => {
         dropIndicator.classList.add('visible');
+    });
+
+    // Animate cards to make room - cards at or after the drop index shift down
+    cards.forEach((card, i) => {
+        if (i >= index) {
+            card.classList.add('make-room-below');
+            card.classList.remove('make-room-above');
+        } else {
+            card.classList.remove('make-room-below');
+            card.classList.remove('make-room-above');
+        }
     });
 
     currentDropTarget = taskList;
@@ -473,7 +478,11 @@ function hideDropIndicator() {
 
     dropIndicator.classList.remove('visible');
 
-    // Remove after animation completes
+    // Remove make-room classes from all cards
+    document.querySelectorAll('.task-card.make-room-above, .task-card.make-room-below').forEach(card => {
+        card.classList.remove('make-room-above', 'make-room-below');
+    });
+
     setTimeout(() => {
         if (dropIndicator.parentElement) {
             dropIndicator.remove();
@@ -1466,7 +1475,6 @@ function renderTasks() {
         existingCards.set(card.dataset.id, card);
     });
 
-    const presentTaskIds = new Set();
     const currentTaskIds = new Set(tasks.map(t => t.id));
 
     // Remove cards for tasks that no longer exist
