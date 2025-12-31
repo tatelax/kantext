@@ -12,3 +12,8 @@ X Add strikethru on tasks in done column
 X If a task fails to pass ask the user if they want to move it to in progress
 * Fix height of columns to match padding between bottom of screen and left of screen
 X Detect if the test output is in JSON. If so, display the JSON in a nice way in the test results screen.
+X Add an encircled '?' tooltip to the right side of various settings options to explain what they do. Use custom CSS so the tooltips match the theme. The tooltips should appear when the user hovers over the ?.
+X Make it so when a test is running, the circle showing number of successful tests is empty and the counter says -/x
+X Change it so that instead of an hourglass when a test is running we show a loading spinner
+* Fix the spacing between the task title and task metadata so that the spacing is the same whether the task has tests associated with it or not. Currently if the task doesnt have a test associated with it, it has less spacing than ones that do. Also investigate the placement of the play button. It is not aligned vertically with the task title.
+* Given your pdate README.md. Ensure setup instructions are correct for someone who may not have any prerequisites installed. Provide instructions for Linux, macOS, and Windows.

@@ -1825,7 +1825,9 @@ function createTestProgressHTML(task) {
     if (total === 0) return '';
 
     const status = task.test_status; // passed, failed, running
-    const progress = total > 0 ? passed / total : 0;
+    const isRunning = status === 'running';
+    // When running, show empty circle (progress = 0)
+    const progress = isRunning ? 0 : (total > 0 ? passed / total : 0);
 
     // SVG circle calculations
     const radius = 5.5;
@@ -1836,7 +1838,10 @@ function createTestProgressHTML(task) {
     const statusText = status === 'passed' ? 'All tests passing' :
                        status === 'failed' ? `${total - passed} test${total - passed !== 1 ? 's' : ''} failing` :
                        'Tests running...';
-    const tooltip = `${passed} of ${total} tests passing - ${statusText}`;
+    const tooltip = isRunning ? 'Tests running...' : `${passed} of ${total} tests passing - ${statusText}`;
+
+    // When running, show "-/x" instead of "passed/total"
+    const progressText = isRunning ? `-/${total}` : `${passed}/${total}`;
 
     return `<span class="test-progress ${status}" title="${tooltip}">
         <svg class="test-progress-ring" viewBox="0 0 16 16">
@@ -1845,7 +1850,7 @@ function createTestProgressHTML(task) {
                 stroke-dasharray="${circumference}"
                 stroke-dashoffset="${offset}"/>
         </svg>
-        <span class="test-progress-text">${passed}/${total}</span>
+        <span class="test-progress-text">${progressText}</span>
     </span>`;
 }
 
@@ -2900,7 +2905,7 @@ async function handleFormSubmit(e) {
 async function handleRunTest(taskId, button) {
     // Update UI to show running state
     button.classList.add('running');
-    button.innerHTML = '&#8987;'; // Hourglass
+    button.innerHTML = '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
 
     // Find task and update local state optimistically
     const task = tasks.find(t => t.id === taskId);
@@ -2913,6 +2918,11 @@ async function handleRunTest(taskId, button) {
         if (statusEl) {
             statusEl.className = 'task-status running';
             statusEl.textContent = formatStatus('running');
+        }
+        // Update test progress indicator to show running state
+        const progressEl = card.querySelector('.test-progress');
+        if (progressEl) {
+            progressEl.outerHTML = createTestProgressHTML(task);
         }
     }
 

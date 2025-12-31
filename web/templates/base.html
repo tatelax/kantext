@@ -30,7 +30,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=109">
+    <link rel="stylesheet" href="/static/css/styles.css?v=115">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -362,7 +362,7 @@
         <div class="dialog-content dialog-lg">
             <header class="mb-6">
                 <h2 class="text-xl font-semibold tracking-tight text-foreground">Settings</h2>
-                <p class="text-sm text-muted-foreground mt-1">Configure Kantext application settings</p>
+                <p class="text-sm text-muted-foreground mt-1">Settings are saved to config.json</p>
             </header>
 
             <form id="config-form" class="space-y-6">
@@ -371,19 +371,19 @@
                     <h3 class="panel-section-title">General</h3>
                     <div class="panel-section-body space-y-4">
                         <div class="space-y-2">
-                            <label for="config-working-dir" class="text-sm font-medium text-foreground">Working Directory</label>
+                            <label for="config-working-dir" class="text-sm font-medium text-foreground">Working Directory<span class="help-tooltip" data-tooltip="The root directory where Kantext looks for your tasks file and runs tests. This is typically your project's root folder.">?</span></label>
                             <input type="text" id="config-working-dir" name="working_directory" class="input-field bg-muted/50" readonly disabled placeholder="/path/to/project">
                             <p class="text-xs text-muted-foreground">Read-only. Set via command line or config.json directly.</p>
                         </div>
 
                         <div class="space-y-2">
-                            <label for="config-tasks-file" class="text-sm font-medium text-foreground">Tasks File Name</label>
+                            <label for="config-tasks-file" class="text-sm font-medium text-foreground">Tasks File Name<span class="help-tooltip" data-tooltip="The markdown file where tasks are stored. Uses a specific format with YAML frontmatter to track task metadata, status, and test configurations.">?</span></label>
                             <input type="text" id="config-tasks-file" name="tasks_file" class="input-field" placeholder="TASKS.md">
                             <p class="text-xs text-muted-foreground">Name of the tasks file (relative to working directory)</p>
                         </div>
 
                         <div class="space-y-2">
-                            <label for="config-stale-days" class="text-sm font-medium text-foreground">Stale Threshold (days)</label>
+                            <label for="config-stale-days" class="text-sm font-medium text-foreground">Stale Threshold (days)<span class="help-tooltip" data-tooltip="Tasks that haven't been modified within this many days will be visually marked as stale with a dimmed appearance and indicator badge.">?</span></label>
                             <input type="number" id="config-stale-days" name="stale_threshold_days" class="input-field" min="1" max="365" placeholder="7">
                             <p class="text-xs text-muted-foreground">Tasks unchanged for this many days are marked as stale</p>
                         </div>
@@ -395,22 +395,22 @@
                     <h3 class="panel-section-title">Test Runner</h3>
                     <div class="panel-section-body space-y-4">
                         <div class="space-y-2">
-                            <label for="config-test-command" class="text-sm font-medium text-foreground">Test Command</label>
+                            <label for="config-test-command" class="text-sm font-medium text-foreground">Test Command<span class="help-tooltip" data-tooltip="The shell command to execute tests. Use {testFunc} for the test function name and {testPath} for the test file path. These placeholders are replaced when running tests.">?</span></label>
                             <input type="text" id="config-test-command" name="test_command" class="input-field font-mono text-sm" placeholder="go test -v -count=1 -run ^{testFunc}$ {testPath}">
                             <p class="text-xs text-muted-foreground">Use <code class="bg-muted px-1 rounded">{testFunc}</code> and <code class="bg-muted px-1 rounded">{testPath}</code> placeholders</p>
                         </div>
 
                         <div class="grid grid-cols-3 gap-4">
                             <div class="space-y-2">
-                                <label for="config-pass-string" class="text-sm font-medium text-foreground">Pass String</label>
+                                <label for="config-pass-string" class="text-sm font-medium text-foreground">Pass String<span class="help-tooltip" data-tooltip="Text that appears in test output when a test passes. Used to determine test success.">?</span></label>
                                 <input type="text" id="config-pass-string" name="pass_string" class="input-field font-mono text-sm" placeholder="PASS">
                             </div>
                             <div class="space-y-2">
-                                <label for="config-fail-string" class="text-sm font-medium text-foreground">Fail String</label>
+                                <label for="config-fail-string" class="text-sm font-medium text-foreground">Fail String<span class="help-tooltip" data-tooltip="Text that appears in test output when a test fails. Used to determine test failure.">?</span></label>
                                 <input type="text" id="config-fail-string" name="fail_string" class="input-field font-mono text-sm" placeholder="FAIL">
                             </div>
                             <div class="space-y-2">
-                                <label for="config-no-tests-string" class="text-sm font-medium text-foreground">No Tests String</label>
+                                <label for="config-no-tests-string" class="text-sm font-medium text-foreground">No Tests<span class="help-tooltip" data-tooltip="Text that appears when no matching tests are found. Helps identify misconfigured test paths or function names.">?</span></label>
                                 <input type="text" id="config-no-tests-string" name="no_tests_string" class="input-field font-mono text-sm" placeholder="no tests to run">
                             </div>
                         </div>
@@ -432,7 +432,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=74"></script>
+    <script src="/static/js/app.js?v=79"></script>
 </body>
 </html>
 {{end}}
