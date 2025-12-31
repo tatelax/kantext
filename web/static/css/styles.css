@@ -510,6 +510,7 @@ details[open] .details-arrow {
 .board {
     padding: 0.5rem 1.5rem 1.5rem 1.5rem;
     margin: -0.5rem -1.5rem -1.5rem -1.5rem;
+    height: calc(100% + 32px);
 }
 
 /* Column Cards */
@@ -518,7 +519,7 @@ details[open] .details-arrow {
     border: 1px solid var(--border);
     border-radius: 0.75rem;
     padding: 1rem;
-    max-height: calc(100vh - 120px);
+    max-height: calc(100vh - 153px);
     display: flex;
     flex-direction: column;
     box-shadow: 0 4px 20px -5px hsla(0, 0%, 0%, 0.32);
