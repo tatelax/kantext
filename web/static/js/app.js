@@ -2427,13 +2427,10 @@ function createTestFileGroupHTML(filename, functions, fileIndex) {
  */
 function updateTestsSectionVisibility() {
     const testsSection = document.getElementById('panel-tests-section');
-    const requiresTestCheckbox = document.getElementById('panel-requires-test');
 
-    if (requiresTestCheckbox?.checked) {
-        testsSection?.classList.remove('hidden');
-    } else {
-        testsSection?.classList.add('hidden');
-    }
+    // Always show the tests section so users can add/view test files
+    // regardless of whether "Requires passing test to complete" is checked
+    testsSection?.classList.remove('hidden');
 }
 
 /**
