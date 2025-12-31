@@ -827,12 +827,16 @@ html.dark .task-card.no-test {
     color: var(--foreground);
     flex: 1;
     line-height: 1.4;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Task Actions */
 .task-actions {
     display: flex;
     gap: 0.25rem;
+    flex-shrink: 0;
 }
 
 .task-actions button {
@@ -877,11 +881,11 @@ html.dark .task-card.no-test {
 .task-meta {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.375rem 0.75rem;
     font-size: 0.75rem;
     color: var(--muted-foreground);
     min-width: 0;
-    overflow: hidden;
 }
 
 /* Author display */
@@ -907,9 +911,10 @@ html.dark .task-card.no-test {
     opacity: 0.6;
 }
 
-/* Test count display - align to right */
+/* Test count display - align to right when space allows */
 .task-meta-item:has(.task-test-count) {
     margin-left: auto;
+    flex-shrink: 0;
 }
 
 .task-test-count {
@@ -1277,6 +1282,9 @@ html.dark .task-card.no-test {
     border-radius: 0.25rem;
     padding: 0.125rem 0.25rem;
     margin: -0.125rem -0.25rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .task-title-clickable:hover {
