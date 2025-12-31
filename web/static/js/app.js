@@ -1,39 +1,32 @@
-// Kantext - Frontend Application
-
 const API_BASE = '/api';
 
-// Default columns that cannot be deleted
 const DEFAULT_COLUMN_SLUGS = new Set(['inbox', 'in_progress', 'done']);
 
 function isDefaultColumn(slug) {
     return DEFAULT_COLUMN_SLUGS.has(slug);
 }
 
-// State
 let tasks = [];
 let columns = [];
 let draggedTask = null;
 let draggedColumn = null;
-let columnDragAllowed = false; // Track if drag started from header
-let ws = null; // WebSocket connection
+let columnDragAllowed = false;
+let ws = null;
 let wsReconnectTimer = null;
-let wsReconnectDelay = 1000; // Start with 1 second
-let notificationContainer = null; // Notification container
-let staleThresholdDays = 7; // Default: 1 week
+let wsReconnectDelay = 1000;
+let notificationContainer = null;
+let staleThresholdDays = 7;
 
-// Drag effect state
 let dragGhost = null;
 let lastMouseX = 0;
 let lastMouseY = 0;
 let mouseVelocityX = 0;
 let dragAnimationFrame = null;
 
-// Drop position state
 let dropIndicator = null;
-let currentDropTarget = null; // The task list we're hovering over
-let currentDropIndex = -1; // Index where the card will be inserted
+let currentDropTarget = null;
+let currentDropIndex = -1;
 
-// DOM Elements
 const addTaskBtn = document.getElementById('add-task-btn');
 const taskModal = document.getElementById('task-modal');
 const outputModal = document.getElementById('output-modal');
@@ -46,7 +39,6 @@ const board = document.getElementById('board');
 const requiresTestCheckbox = document.getElementById('requires_test');
 const panelRequiresTestCheckbox = document.getElementById('panel-requires-test');
 
-// Task Panel Elements (for editing existing tasks)
 const taskPanel = document.getElementById('task-panel');
 const taskPanelOverlay = document.getElementById('task-panel-overlay');
 const panelTaskForm = document.getElementById('panel-task-form');
@@ -54,10 +46,9 @@ const panelCloseBtn = document.getElementById('panel-close-btn');
 const panelCancelBtn = document.getElementById('panel-cancel-btn');
 const panelDeleteBtn = document.getElementById('panel-delete-btn');
 const panelSaveBtn = document.getElementById('panel-save-btn');
-let currentPanelTask = null; // Track the task being edited in the panel
-let panelOriginalValues = null; // Track original form values for change detection
+let currentPanelTask = null;
+let panelOriginalValues = null;
 
-// Load configuration from server
 async function loadConfig() {
     try {
         const response = await fetch(`${API_BASE}/config`);
@@ -84,10 +75,6 @@ function isTaskStale(task) {
     const diffDays = diffMs / (1000 * 60 * 60 * 24);
     return diffDays > staleThresholdDays;
 }
-
-// ============================================
-// gotestsum JSON Output Support
-// ============================================
 
 /**
  * Escape HTML special characters for safe rendering
@@ -438,14 +425,6 @@ document.addEventListener('DOMContentLoaded', () => {
     connectWebSocket();
 });
 
-// ============================================
-// Drop Indicator
-// ============================================
-
-/**
- * Initialize the drop indicator element used for showing
- * where a dragged card will be inserted.
- */
 function initDropIndicator() {
     dropIndicator = document.createElement('div');
     dropIndicator.className = 'drop-indicator';
@@ -532,15 +511,6 @@ function calculateDropIndex(taskList, mouseY) {
     return cards.length;
 }
 
-// ============================================
-// Dialog Backdrop Close
-// ============================================
-
-/**
- * Initialize dialog backdrop click handling.
- * Only closes dialog if both mousedown and click started on the backdrop,
- * preventing accidental closes when dragging from inside to outside.
- */
 function initDialogBackdropClose() {
     const dialogs = document.querySelectorAll('.dialog-base');
 
@@ -548,14 +518,11 @@ function initDialogBackdropClose() {
         let mouseDownOnBackdrop = false;
 
         dialog.addEventListener('mousedown', (e) => {
-            // Check if mousedown is directly on the dialog backdrop (not its children)
             mouseDownOnBackdrop = (e.target === dialog);
         });
 
         dialog.addEventListener('click', (e) => {
-            // Only close if both mousedown and click were on the backdrop
             if (mouseDownOnBackdrop && e.target === dialog) {
-                // Special handling for custom-dialog which uses handleCustomDialogCancel
                 if (dialog.id === 'custom-dialog') {
                     handleCustomDialogCancel();
                 } else {
@@ -566,10 +533,6 @@ function initDialogBackdropClose() {
         });
     });
 }
-
-// ============================================
-// Theme Toggle
-// ============================================
 
 function initThemeToggle() {
     const themeToggle = document.getElementById('theme-toggle');
@@ -590,10 +553,6 @@ function toggleTheme() {
         localStorage.setItem('kantext-theme', 'dark');
     }
 }
-
-// ============================================
-// Config Dialog
-// ============================================
 
 let configModal = null;
 let configForm = null;
@@ -741,24 +700,16 @@ async function handleConfigSubmit(e) {
     }
 }
 
-// ============================================
-// Delete Drop Zone
-// ============================================
-
 let deleteDropZone = null;
 
 function initDeleteDropZone() {
-    // Create the delete drop zone element
     deleteDropZone = document.createElement('div');
     deleteDropZone.className = 'delete-drop-zone';
     deleteDropZone.innerHTML = '<span>Drop Here to Delete</span>';
 
-    // Add to header
     const header = document.querySelector('body > header');
     if (header) {
         header.appendChild(deleteDropZone);
-
-        // Setup drop zone event listeners
         deleteDropZone.addEventListener('dragover', handleDeleteZoneDragOver);
         deleteDropZone.addEventListener('dragleave', handleDeleteZoneDragLeave);
         deleteDropZone.addEventListener('drop', handleDeleteZoneDrop);
@@ -825,10 +776,6 @@ async function handleDeleteZoneDrop(e) {
     }
 }
 
-// ============================================
-// Notification System
-// ============================================
-
 function initNotificationSystem() {
     notificationContainer = document.createElement('div');
     notificationContainer.className = 'notification-container';
@@ -836,12 +783,6 @@ function initNotificationSystem() {
     document.body.appendChild(notificationContainer);
 }
 
-/**
- * Show a notification
- * @param {string} message - The message to display
- * @param {string} type - Notification type: 'success', 'error', 'warning', 'info'
- * @param {number} duration - Duration in milliseconds (default: 5000)
- */
 function showNotification(message, type = 'info', duration = 5000) {
     if (!notificationContainer) {
         initNotificationSystem();
@@ -850,7 +791,6 @@ function showNotification(message, type = 'info', duration = 5000) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
 
-    // Add icon based on type
     const icons = {
         success: '✓',
         error: '✕',
@@ -865,38 +805,28 @@ function showNotification(message, type = 'info', duration = 5000) {
 
     notificationContainer.appendChild(notification);
 
-    // Function to dismiss the notification
     const dismiss = () => {
-        if (notification.classList.contains('fade-out')) return; // Already dismissing
+        if (notification.classList.contains('fade-out')) return;
         clearTimeout(autoRemoveTimeout);
         notification.classList.add('fade-out');
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.remove();
             }
-        }, 300); // Wait for fade-out animation
+        }, 300);
     };
 
-    // Click to dismiss
     notification.addEventListener('click', dismiss);
-
-    // Auto-remove after duration
     const autoRemoveTimeout = setTimeout(dismiss, duration);
 
     return notification;
 }
 
-/**
- * Copy text to clipboard
- * @param {string} text - The text to copy
- * @returns {Promise<boolean>} - Whether the copy was successful
- */
 async function copyToClipboard(text) {
     try {
         await navigator.clipboard.writeText(text);
         return true;
     } catch (err) {
-        // Fallback for older browsers
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.position = 'fixed';
@@ -913,10 +843,6 @@ async function copyToClipboard(text) {
         }
     }
 }
-
-// ============================================
-// Custom Dialog System
-// ============================================
 
 let customDialogResolve = null;
 let customDialogMode = 'confirm'; // 'confirm' or 'prompt'
@@ -1041,12 +967,7 @@ if (customDialog) {
     });
 }
 
-// ============================================
-// WebSocket Functions
-// ============================================
-
 function connectWebSocket() {
-    // Determine WebSocket URL based on current location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
 
@@ -1275,21 +1196,14 @@ async function handleOutputMoveToInProgress() {
     }
 }
 
-// ============================================
-// Column API Functions
-// ============================================
-
 async function loadColumns() {
     try {
         const response = await fetch(`${API_BASE}/columns`);
         const newColumns = await response.json();
 
-        // Check if columns have actually changed
         if (!columnsEqual(columns, newColumns)) {
             columns = newColumns;
             renderColumns();
-            // After recreating columns, we must re-render tasks
-            // since renderColumns() clears the board
             renderTasks();
         }
     } catch (error) {
@@ -1297,9 +1211,6 @@ async function loadColumns() {
     }
 }
 
-/**
- * Compares two column arrays to determine if they are equivalent.
- */
 function columnsEqual(oldColumns, newColumns) {
     if (oldColumns.length !== newColumns.length) return false;
 
@@ -1362,43 +1273,31 @@ async function reorderColumns(slugs) {
     return response.json();
 }
 
-// ============================================
-// Task API Functions
-// ============================================
-
 async function loadTasks() {
     try {
         const response = await fetch(`${API_BASE}/tasks`);
         const newTasks = await response.json();
 
-        // Check if tasks have actually changed to avoid unnecessary DOM operations
         if (!tasksEqual(tasks, newTasks)) {
             tasks = newTasks;
             renderTasks();
         }
 
-        // Always update panel stale badge (stale status can change with time)
         updatePanelStaleBadge();
     } catch (error) {
         console.error('Failed to load tasks:', error);
     }
 }
 
-/**
- * Compares two task arrays to determine if they are equivalent.
- * Returns true if the tasks are the same (no render needed).
- */
 function tasksEqual(oldTasks, newTasks) {
     if (oldTasks.length !== newTasks.length) return false;
 
-    // Create a map for quick lookup
     const oldMap = new Map(oldTasks.map(t => [t.id, t]));
 
     for (const newTask of newTasks) {
         const oldTask = oldMap.get(newTask.id);
         if (!oldTask) return false;
 
-        // Compare relevant fields (including metadata displayed on cards)
         if (oldTask.title !== newTask.title ||
             oldTask.column !== newTask.column ||
             oldTask.priority !== newTask.priority ||
@@ -1453,10 +1352,6 @@ async function runTest(id) {
     return response.json();
 }
 
-// ============================================
-// Column Render Functions
-// ============================================
-
 function renderColumns() {
     if (!board) return;
     board.innerHTML = '';
@@ -1466,7 +1361,6 @@ function renderColumns() {
         board.appendChild(columnEl);
     });
 
-    // Add the "New Column" button at the end
     const addColumnBtn = document.createElement('button');
     addColumnBtn.id = 'add-column-btn';
     addColumnBtn.className = 'add-column-btn-inline';
@@ -1566,23 +1460,13 @@ function createColumnElement(col) {
     return column;
 }
 
-// ============================================
-// Task Render Functions
-// ============================================
-
-/**
- * Renders tasks using differential DOM updates.
- * Only creates, removes, or updates cards that have actually changed,
- * avoiding the flash/flicker caused by destroying and recreating all cards.
- */
 function renderTasks() {
-    // Build a map of existing cards by task ID
     const existingCards = new Map();
     document.querySelectorAll('.task-card').forEach(card => {
         existingCards.set(card.dataset.id, card);
     });
 
-    // Track which task IDs are still present
+    const presentTaskIds = new Set();
     const currentTaskIds = new Set(tasks.map(t => t.id));
 
     // Remove cards for tasks that no longer exist
@@ -2098,10 +1982,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ============================================
-// Column Handlers
-// ============================================
-
 async function handleAddColumn() {
     const name = await showPromptDialog('Enter a name for the new column:', {
         title: 'New Column',
@@ -2248,14 +2128,6 @@ async function handleColumnDrop(e) {
     }
 }
 
-// ============================================
-// Task Modal Functions (New Task Dialog Only)
-// ============================================
-
-/**
- * Opens the new task dialog (for creating new tasks only)
- * Task editing is now handled by the Task Panel
- */
 function openNewTaskModal() {
     if (!taskModal) {
         console.error('Task modal not found');
@@ -2335,16 +2207,11 @@ function showOutput(task, results = null) {
     outputModal.showModal();
 }
 
-// ============================================
-// Task Metadata Functions
-// ============================================
-
 function formatDateTime(dateString) {
     if (!dateString) return null;
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return null;
 
-    // Format: "Dec 28, 2025 at 10:44 AM"
     return date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -2434,17 +2301,9 @@ function hideTaskMetadata() {
     }
 }
 
-// ============================================
-// Task Panel Functions (Slide-in Panel)
-// ============================================
-
-/**
- * Opens the task panel and populates it with task data
- */
 function openTaskPanel(task) {
     if (!taskPanel || !task) return;
 
-    // Always fetch the latest task data from the tasks array
     const freshTask = tasks.find(t => t.id === task.id) || task;
     currentPanelTask = freshTask;
     task = freshTask;
@@ -2883,10 +2742,6 @@ function initTaskPanel() {
     initPanelResize();
 }
 
-// ============================================
-// Task Form Handler (for New Task Dialog)
-// ============================================
-
 async function handleFormSubmit(e) {
     e.preventDefault();
 
@@ -2909,16 +2764,10 @@ async function handleFormSubmit(e) {
     }
 }
 
-// ============================================
-// Task Action Handlers
-// ============================================
-
 async function handleRunTest(taskId, button) {
-    // Update UI to show running state
     button.classList.add('running');
     button.innerHTML = '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
 
-    // Find task and update local state optimistically
     const task = tasks.find(t => t.id === taskId);
     const card = document.querySelector(`.task-card[data-id="${taskId}"]`);
 
@@ -2981,33 +2830,23 @@ async function handleDeleteTask(taskId) {
     }
 }
 
-// ============================================
-// Task Drag and Drop
-// ============================================
-
 function handleDragStart(e) {
     draggedTask = e.target;
     e.target.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', e.target.dataset.id);
 
-    // Create custom drag ghost with lift effect
     createDragGhost(e.target, e.clientX, e.clientY);
 
-    // Hide native drag ghost by setting a transparent image
     const transparentImg = new Image();
     transparentImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     e.dataTransfer.setDragImage(transparentImg, 0, 0);
 
-    // Initialize mouse tracking
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
     mouseVelocityX = 0;
 
-    // Start listening for mouse movement during drag
     document.addEventListener('dragover', trackDragMovement);
-
-    // Show the delete drop zone when dragging a task
     showDeleteDropZone();
 }
 
@@ -3305,18 +3144,10 @@ function updateTaskCounts() {
     });
 }
 
-// ============================================
-// Panel Resize Functionality
-// ============================================
-
 const PANEL_MIN_WIDTH = 300;
-const PANEL_MAX_WIDTH_RATIO = 0.8; // 80% of viewport width
+const PANEL_MAX_WIDTH_RATIO = 0.8;
 const PANEL_WIDTH_STORAGE_KEY = 'kantext-panel-width';
 
-/**
- * Initialize the panel resize functionality.
- * Allows users to drag the left edge of the panel to resize it.
- */
 function initPanelResize() {
     const resizeHandle = document.getElementById('task-panel-resize-handle');
     if (!resizeHandle || !taskPanel) return;
@@ -3325,7 +3156,6 @@ function initPanelResize() {
     let startX = 0;
     let startWidth = 0;
 
-    // Restore saved width from localStorage
     const savedWidth = localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
     if (savedWidth) {
         const width = parseInt(savedWidth, 10);

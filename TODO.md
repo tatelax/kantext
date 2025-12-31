@@ -15,9 +15,9 @@ X Detect if the test output is in JSON. If so, display the JSON in a nice way in
 X Add an encircled '?' tooltip to the right side of various settings options to explain what they do. Use custom CSS so the tooltips match the theme. The tooltips should appear when the user hovers over the ?.
 X Make it so when a test is running, the circle showing number of successful tests is empty and the counter says -/x
 X Change it so that instead of an hourglass when a test is running we show a loading spinner
-* Fix the spacing between the task title and task metadata so that the spacing is the same whether the task has tests associated with it or not. Currently if the task doesnt have a test associated with it, it has less spacing than ones that do. Also investigate the placement of the play button. It is not aligned vertically with the task title.
+X Fix the spacing between the task title and task metadata so that the spacing is the same whether the task has tests associated with it or not. Currently if the task doesnt have a test associated with it, it has less spacing than ones that do. Also investigate the placement of the play button. It is not aligned vertically with the task title.
 X Ensure README.md in Kantext is up to date. Ensure setup instructions are correct for someone who may not have any prerequisites installed. Provide instructions for Linux, macOS, and Windows.
 X Ensure we aren't marking tasks as stale if they're in the Done column. Marking tasks as stale only happens for tasks not in the Done column.
 X Fix the issue where moving tasks to a different column isn't updating the 'updated_at' date for that task
 * Animate cards moving around as you drag another card between them. Currently it is working correctly that cards create a space where the user can drop a dragged card in between. However the cards instantly move out of the way. It would be nice if they smoothly animated out of the way instead. Similar to how Trello works.
-* Go through the code base and remove any unnecessary comments that explain things that don't need explaining.
+X Go through the code base and remove any unnecessary comments that explain things that don't need explaining.
