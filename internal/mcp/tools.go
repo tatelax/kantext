@@ -142,7 +142,7 @@ func (h *ToolHandler) GetTools() []Tool {
 		},
 		{
 			Name:        "move_task",
-			Description: "Move a task to a different column (inbox, in_progress, or done). Use this to manually organize tasks.",
+			Description: "Move a task to a different column. Use this to manually organize tasks.",
 			InputSchema: InputSchema{
 				Type: "object",
 				Properties: map[string]Property{
@@ -152,7 +152,7 @@ func (h *ToolHandler) GetTools() []Tool {
 					},
 					"column": {
 						Type:        "string",
-						Description: "Target column: 'inbox', 'in_progress', or 'done'",
+						Description: "Target column slug (e.g., 'inbox', 'in_progress', 'in_review', 'done')",
 					},
 				},
 				Required: []string{"task_id", "column"},
@@ -211,43 +211,35 @@ func (h *ToolHandler) CallTool(name string, args map[string]interface{}) ToolRes
 func (h *ToolHandler) listTasks() ToolResult {
 	tasks := h.store.GetAll()
 
-	// Organize by column
-	columns := map[string][]*models.Task{
-		"inbox":       {},
-		"in_progress": {},
-		"done":        {},
-	}
+	// Get columns from store (already sorted by Order)
+	columnDefs := h.store.GetColumns()
 
+	// Organize tasks by column
+	tasksByColumn := make(map[string][]*models.Task)
+	for _, col := range columnDefs {
+		tasksByColumn[col.Slug] = []*models.Task{}
+	}
 	for _, task := range tasks {
 		col := string(task.Column)
-		columns[col] = append(columns[col], task)
+		tasksByColumn[col] = append(tasksByColumn[col], task)
 	}
 
 	var sb strings.Builder
 	sb.WriteString("# Kantext Tasks\n\n")
 
-	sb.WriteString("## Inbox\n")
-	for _, t := range columns["inbox"] {
-		sb.WriteString(formatTask(t))
-	}
-	if len(columns["inbox"]) == 0 {
-		sb.WriteString("(no tasks)\n")
-	}
-
-	sb.WriteString("\n## In Progress\n")
-	for _, t := range columns["in_progress"] {
-		sb.WriteString(formatTask(t))
-	}
-	if len(columns["in_progress"]) == 0 {
-		sb.WriteString("(no tasks)\n")
-	}
-
-	sb.WriteString("\n## Done\n")
-	for _, t := range columns["done"] {
-		sb.WriteString(formatTask(t))
-	}
-	if len(columns["done"]) == 0 {
-		sb.WriteString("(no tasks)\n")
+	// Output tasks for each column in order
+	for i, col := range columnDefs {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(fmt.Sprintf("## %s\n", col.Name))
+		colTasks := tasksByColumn[col.Slug]
+		for _, t := range colTasks {
+			sb.WriteString(formatTask(t))
+		}
+		if len(colTasks) == 0 {
+			sb.WriteString("(no tasks)\n")
+		}
 	}
 
 	return ToolResult{
@@ -617,25 +609,28 @@ func (h *ToolHandler) moveTask(args map[string]interface{}) ToolResult {
 	columnStr, ok := args["column"].(string)
 	if !ok || columnStr == "" {
 		return ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: "column is required (inbox, in_progress, or done)"}},
+			Content: []ContentBlock{{Type: "text", Text: "column is required"}},
 			IsError: true,
 		}
 	}
 
-	var column models.Column
-	switch columnStr {
-	case "inbox":
-		column = models.ColumnInbox
-	case "in_progress":
-		column = models.ColumnInProgress
-	case "done":
-		column = models.ColumnDone
-	default:
+	// Validate column exists in the store
+	columns := h.store.GetColumns()
+	validColumn := false
+	var validColumnNames []string
+	for _, col := range columns {
+		validColumnNames = append(validColumnNames, col.Slug)
+		if col.Slug == columnStr {
+			validColumn = true
+		}
+	}
+	if !validColumn {
 		return ToolResult{
-			Content: []ContentBlock{{Type: "text", Text: "Invalid column. Must be 'inbox', 'in_progress', or 'done'"}},
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Invalid column '%s'. Valid columns: %s", columnStr, strings.Join(validColumnNames, ", "))}},
 			IsError: true,
 		}
 	}
+	column := models.Column(columnStr)
 
 	// Get current task to check test status
 	currentTask, err := h.store.Get(taskID)

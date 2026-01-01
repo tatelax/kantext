@@ -1001,6 +1001,7 @@ async function openConfigModal() {
 function closeConfigModal() {
     if (configModal) {
         configModal.close();
+        document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
     }
 }
 
@@ -1126,6 +1127,7 @@ function initTaskModalKeyboard() {
     if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
             taskModal.close();
+            document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
         });
     }
 
@@ -1135,6 +1137,7 @@ function initTaskModalKeyboard() {
         if (e.key === 'Escape') {
             e.preventDefault();
             taskModal.close();
+            document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
             return;
         }
 
@@ -1377,6 +1380,7 @@ function showPromptDialog(message, options = {}) {
 
 function handleCustomDialogCancel() {
     customDialog.close();
+    document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
     if (customDialogResolve) {
         if (customDialogMode === 'confirm') {
             customDialogResolve(false);
@@ -1389,6 +1393,7 @@ function handleCustomDialogCancel() {
 
 function handleCustomDialogConfirm() {
     customDialog.close();
+    document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
     if (customDialogResolve) {
         if (customDialogMode === 'confirm') {
             customDialogResolve(true);
@@ -1641,6 +1646,7 @@ async function handleOutputMoveToInProgress() {
 
         // Close the modal
         outputModal.close();
+        document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
 
         // Reload tasks to reflect the change
         await loadTasks();
@@ -3102,6 +3108,9 @@ function closeTaskPanel() {
     currentPanelTask = null;
     panelOriginalValues = null;
 
+    // Return focus to document for keyboard shortcuts
+    document.activeElement?.blur();
+
     // Reset form and title edit mode after animation (only if panel is still closed)
     setTimeout(() => {
         if (!taskPanel?.classList.contains('open')) {
@@ -3549,6 +3558,7 @@ async function handleFormSubmit(e) {
         await createTask(data);
         showNotification(`"${data.title}" was created successfully!`, 'success');
         taskModal.close();
+        document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
         await loadTasks();
     } catch (error) {
         console.error('Failed to create task:', error);
