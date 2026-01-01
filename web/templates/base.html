@@ -31,7 +31,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/styles.css?v=7">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -205,7 +205,7 @@
 
                         <div class="space-y-2">
                             <span class="text-sm font-medium text-foreground">Priority</span>
-                            <div class="flex gap-4 mt-2">
+                            <div id="panel-priority-options" class="flex gap-4 mt-2">
                                 <label class="priority-option">
                                     <input type="radio" name="panel-priority" value="low" class="sr-only peer">
                                     <span class="priority-badge priority-low peer-checked:ring-2 peer-checked:ring-primary peer-checked:ring-offset-2 peer-checked:ring-offset-background">Low</span>
@@ -218,6 +218,10 @@
                                     <input type="radio" name="panel-priority" value="high" class="sr-only peer">
                                     <span class="priority-badge priority-high peer-checked:ring-2 peer-checked:ring-destructive peer-checked:ring-offset-2 peer-checked:ring-offset-background">High</span>
                                 </label>
+                            </div>
+                            <div id="panel-custom-priority" class="hidden mt-2 flex items-center gap-2">
+                                <span id="panel-custom-priority-badge" class="priority-badge priority-unknown"></span>
+                                <span class="text-xs text-muted-foreground">(Custom priority - select a standard priority to change)</span>
                             </div>
                         </div>
 

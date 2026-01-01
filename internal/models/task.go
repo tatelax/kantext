@@ -49,6 +49,11 @@ const (
 	PriorityLow    Priority = "low"
 )
 
+// IsKnownPriority returns true if the priority is a known standard value
+func IsKnownPriority(p Priority) bool {
+	return p == PriorityHigh || p == PriorityMedium || p == PriorityLow
+}
+
 // TestStatus represents the status of a test run
 type TestStatus string
 

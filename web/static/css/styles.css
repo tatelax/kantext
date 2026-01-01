@@ -646,6 +646,17 @@ html.dark .task-card {
     border-left: 3px solid hsl(217, 91%, 60%);
 }
 
+/* Unknown/custom priority - grey left border indicator */
+.task-card.priority-unknown {
+    border-left: 3px solid hsl(0, 0%, 50%);
+}
+
+/* Priority badge for unknown priorities */
+.priority-badge.priority-unknown {
+    background-color: hsla(0, 0%, 50%, 0.2);
+    color: hsl(0, 0%, 50%);
+}
+
 .task-card:hover {
     box-shadow: 0 0 20px -2px hsla(0, 0%, 100%, 0.15);
 }

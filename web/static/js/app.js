@@ -6,6 +6,12 @@ function isDefaultColumn(slug) {
     return DEFAULT_COLUMN_SLUGS.has(slug);
 }
 
+const KNOWN_PRIORITIES = new Set(['high', 'medium', 'low']);
+
+function isKnownPriority(priority) {
+    return KNOWN_PRIORITIES.has(priority);
+}
+
 let tasks = [];
 let columns = [];
 let draggedTask = null;
@@ -450,8 +456,9 @@ function sortColumnTasks(columnTasks, columnSlug) {
 
         switch (sortConfig.field) {
             case 'priority':
-                const aPriority = priorityOrder[a.priority || 'medium'];
-                const bPriority = priorityOrder[b.priority || 'medium'];
+                // Unknown priorities (not in priorityOrder) sort after 'low' (position 3)
+                const aPriority = priorityOrder[a.priority] !== undefined ? priorityOrder[a.priority] : 3;
+                const bPriority = priorityOrder[b.priority] !== undefined ? priorityOrder[b.priority] : 3;
                 comparison = aPriority - bPriority;
                 break;
 
@@ -2343,7 +2350,7 @@ function renderTasks() {
 function updateTaskCard(card, task) {
     const hasTest = taskHasTest(task);
     const requiresTest = task.requires_test || false;
-    const priorityClass = `priority-${task.priority || 'medium'}`;
+    const priorityClass = isKnownPriority(task.priority) ? `priority-${task.priority}` : 'priority-unknown';
     const taskAuthor = task.updated_by || task.created_by || '';
     const uncommittedClass = isUncommitted(taskAuthor) ? ' uncommitted' : '';
 
@@ -2759,7 +2766,7 @@ function createTaskCard(task) {
     const card = document.createElement('div');
     const hasTest = taskHasTest(task);
     const requiresTest = task.requires_test || false;
-    const priorityClass = `priority-${task.priority || 'medium'}`;
+    const priorityClass = isKnownPriority(task.priority) ? `priority-${task.priority}` : 'priority-unknown';
     const taskAuthor = task.updated_by || task.created_by || '';
     const uncommittedClass = isUncommitted(taskAuthor) ? ' uncommitted' : '';
     // Apply no-test class only if task doesn't require a test
@@ -3303,9 +3310,25 @@ function openTaskPanel(task) {
     // Ensure title is in display mode (not edit mode)
     hideTitleEditMode();
 
-    // Set priority radio button
-    const priorityRadio = panelTaskForm?.querySelector(`input[name="panel-priority"][value="${task.priority || 'medium'}"]`);
-    if (priorityRadio) priorityRadio.checked = true;
+    // Set priority radio button or show custom priority display
+    const customPriorityDisplay = document.getElementById('panel-custom-priority');
+    const customPriorityBadge = document.getElementById('panel-custom-priority-badge');
+
+    if (isKnownPriority(task.priority)) {
+        // Standard priority - use radio buttons as normal
+        const priorityRadio = panelTaskForm?.querySelector(`input[name="panel-priority"][value="${task.priority}"]`);
+        if (priorityRadio) priorityRadio.checked = true;
+        // Hide custom priority display
+        if (customPriorityDisplay) customPriorityDisplay.classList.add('hidden');
+    } else {
+        // Unknown/custom priority - show as text with option to change
+        if (customPriorityDisplay && customPriorityBadge && task.priority) {
+            customPriorityBadge.textContent = task.priority.toUpperCase();
+            customPriorityDisplay.classList.remove('hidden');
+        }
+        // Uncheck all radio buttons
+        panelTaskForm?.querySelectorAll('input[name="panel-priority"]').forEach(r => r.checked = false);
+    }
 
     // Load tags into panel
     loadPanelTags(task);
@@ -3784,7 +3807,12 @@ function initTaskPanel() {
 
     criteriaInput?.addEventListener('input', updatePanelSaveButton);
     priorityRadios?.forEach(radio => {
-        radio.addEventListener('change', updatePanelSaveButton);
+        radio.addEventListener('change', () => {
+            // Hide custom priority display when a known priority is selected
+            const customPriorityDisplay = document.getElementById('panel-custom-priority');
+            if (customPriorityDisplay) customPriorityDisplay.classList.add('hidden');
+            updatePanelSaveButton();
+        });
     });
     panelRequiresTestCheckbox?.addEventListener('change', () => {
         updateTestsSectionVisibility();

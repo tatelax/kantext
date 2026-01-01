@@ -270,6 +270,11 @@ func formatTask(t *models.Task) string {
 		priorityEmoji = "[MEDIUM]"
 	case models.PriorityLow:
 		priorityEmoji = "[LOW]"
+	default:
+		// Unknown/custom priority - show as-is in brackets
+		if t.Priority != "" {
+			priorityEmoji = fmt.Sprintf("[%s]", strings.ToUpper(string(t.Priority)))
+		}
 	}
 
 	var sb strings.Builder
