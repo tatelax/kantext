@@ -3153,7 +3153,7 @@ function formatDateTime(dateString) {
 
 /**
  * Format a date for display on task cards (compact format)
- * Shows: "Updated Dec 30" or "Updated Yesterday" etc.
+ * Shows: "Updated Dec 30 at 2:30 PM" or "Updated Yesterday at 2:30 PM" etc.
  */
 function formatCardDate(dateString) {
     if (!dateString) return '';
@@ -3164,18 +3164,25 @@ function formatCardDate(dateString) {
     const diffMs = now - date;
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
+    const timeStr = date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    });
+
     if (diffDays === 0) {
-        return 'Updated today';
+        return `Updated today at ${timeStr}`;
     } else if (diffDays === 1) {
-        return 'Updated yesterday';
+        return `Updated yesterday at ${timeStr}`;
     } else if (diffDays < 7) {
-        return `Updated ${diffDays} days ago`;
+        return `Updated ${diffDays} days ago at ${timeStr}`;
     } else {
-        // Format as "Updated Dec 30"
-        return 'Updated ' + date.toLocaleDateString('en-US', {
+        // Format as "Updated Dec 30 at 2:30 PM"
+        const dateStr = date.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric'
         });
+        return `Updated ${dateStr} at ${timeStr}`;
     }
 }
 
