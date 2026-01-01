@@ -2,8 +2,10 @@ package services
 
 import (
 	"bufio"
+	"crypto/rand"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,6 @@ import (
 
 	"kantext/internal/models"
 
-	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +28,31 @@ const (
 	DefaultFailString         = "FAIL"
 	DefaultNoTestsString      = "no tests to run"
 )
+
+// Short ID configuration
+const (
+	shortIDLength  = 8
+	shortIDCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
+
+// generateShortID creates a short, unique ID using cryptographically secure random bytes.
+// The ID is "task-" followed by 8 alphanumeric characters (62^8 = 218 trillion combinations).
+// This maintains backwards compatibility with existing UUID IDs since IDs are just strings.
+func generateShortID() string {
+	result := make([]byte, shortIDLength)
+	charsetLen := big.NewInt(int64(len(shortIDCharset)))
+
+	for i := 0; i < shortIDLength; i++ {
+		num, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			// Fallback to a simple timestamp-based ID if crypto/rand fails
+			return fmt.Sprintf("task-%d", time.Now().UnixNano())
+		}
+		result[i] = shortIDCharset[num.Int64()]
+	}
+
+	return "task-" + string(result)
+}
 
 // TestRunnerSettings holds test runner configuration from YAML front matter
 type TestRunnerSettings struct {
@@ -318,7 +344,7 @@ func (s *TaskStore) Load() error {
 	finalizeTask := func() {
 		if currentTask != nil {
 			if currentTask.ID == "" {
-				currentTask.ID = uuid.New().String()
+				currentTask.ID = generateShortID()
 			}
 			currentTask.Order = taskOrder
 			taskOrder++
@@ -454,7 +480,7 @@ func (s *TaskStore) normalizeTasksLocked() bool {
 	for _, task := range s.tasks {
 		// Check and fill missing ID
 		if task.ID == "" {
-			task.ID = uuid.New().String()
+			task.ID = generateShortID()
 			changed = true
 		}
 
@@ -515,7 +541,7 @@ func (s *TaskStore) ensureDefaultColumnsLocked() bool {
 func (s *TaskStore) parseLegacyTaskWithTest(matches []string, column models.Column) *models.Task {
 	id := matches[7]
 	if id == "" {
-		id = uuid.New().String()
+		id = generateShortID()
 	}
 
 	task := &models.Task{
@@ -538,7 +564,7 @@ func (s *TaskStore) parseLegacyTaskWithTest(matches []string, column models.Colu
 func (s *TaskStore) parseLegacyTaskNoTest(matches []string, column models.Column) *models.Task {
 	id := matches[5]
 	if id == "" {
-		id = uuid.New().String()
+		id = generateShortID()
 	}
 
 	task := &models.Task{
@@ -557,7 +583,7 @@ func (s *TaskStore) parseLegacyTaskNoTest(matches []string, column models.Column
 func (s *TaskStore) parseLegacyOldTask(matches []string, column models.Column) *models.Task {
 	id := matches[6]
 	if id == "" {
-		id = uuid.New().String()
+		id = generateShortID()
 	}
 
 	task := &models.Task{
@@ -956,7 +982,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 
 	now := time.Now().UTC()
 	task := &models.Task{
-		ID:                 uuid.New().String(),
+		ID:                 generateShortID(),
 		Title:              req.Title,
 		AcceptanceCriteria: req.AcceptanceCriteria,
 		Priority:           priority,
