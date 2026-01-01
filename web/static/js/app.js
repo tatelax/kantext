@@ -131,7 +131,7 @@ function closeSortDropdowns() {
  * Handle sort field change
  */
 async function handleSortChange(columnSlug, field) {
-    const currentSort = columnSortSettings[columnSlug] || { field: 'manual', direction: 'asc' };
+    const currentSort = columnSortSettings[columnSlug] || { field: 'manual', direction: 'desc' };
 
     // If switching from manual to another sort, show confirmation
     if (currentSort.field === 'manual' && field !== 'manual') {
@@ -164,7 +164,7 @@ async function handleSortChange(columnSlug, field) {
  * Handle sort direction toggle
  */
 function handleSortDirectionToggle(columnSlug) {
-    const currentSort = columnSortSettings[columnSlug] || { field: 'manual', direction: 'asc' };
+    const currentSort = columnSortSettings[columnSlug] || { field: 'manual', direction: 'desc' };
     const newDirection = currentSort.direction === 'asc' ? 'desc' : 'asc';
     columnSortSettings[columnSlug] = { field: currentSort.field, direction: newDirection };
 
@@ -207,7 +207,7 @@ function loadSortSettings() {
  * Sort tasks for a column based on current sort settings
  */
 function sortColumnTasks(columnTasks, columnSlug) {
-    const sortConfig = columnSortSettings[columnSlug] || { field: 'manual', direction: 'asc' };
+    const sortConfig = columnSortSettings[columnSlug] || { field: 'manual', direction: 'desc' };
 
     if (sortConfig.field === 'manual') {
         return columnTasks; // Return original order
@@ -1845,7 +1845,7 @@ function createColumnElement(col) {
     column.dataset.column = col.slug;
     column.draggable = true;
 
-    const currentSort = columnSortSettings[col.slug] || { field: 'manual', direction: 'asc' };
+    const currentSort = columnSortSettings[col.slug] || { field: 'manual', direction: 'desc' };
     const sortLabel = getSortLabel(currentSort.field);
 
     column.innerHTML = `
