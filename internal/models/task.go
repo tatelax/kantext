@@ -66,6 +66,7 @@ type Task struct {
 	AcceptanceCriteria string     `json:"acceptance_criteria"`
 	Priority           Priority   `json:"priority"`
 	Column             Column     `json:"column"`
+	Tags               []string   `json:"tags"`                // Array of tags for categorization
 	RequiresTest       bool       `json:"requires_test"`       // Whether task completion requires a passing test
 	Tests              []TestSpec `json:"tests"`               // Array of test specifications
 	TestStatus         TestStatus `json:"test_status"`
@@ -85,6 +86,7 @@ type CreateTaskRequest struct {
 	Title              string   `json:"title"`
 	AcceptanceCriteria string   `json:"acceptance_criteria"`
 	Priority           Priority `json:"priority"`
+	Tags               []string `json:"tags,omitempty"`          // Optional: array of tags for categorization
 	RequiresTest       *bool    `json:"requires_test,omitempty"` // Optional: whether task requires a passing test (default: false)
 	Author             string   `json:"author,omitempty"`        // Optional: who is creating this task
 }
@@ -95,6 +97,7 @@ type UpdateTaskRequest struct {
 	AcceptanceCriteria *string    `json:"acceptance_criteria,omitempty"`
 	Priority           *Priority  `json:"priority,omitempty"`
 	Column             *Column    `json:"column,omitempty"`
+	Tags               []string   `json:"tags,omitempty"`         // Optional: array of tags for categorization
 	RequiresTest       *bool      `json:"requires_test,omitempty"` // Optional: whether task requires a passing test
 	Tests              []TestSpec `json:"tests,omitempty"`         // Optional: array of test specifications
 	Author             string     `json:"author,omitempty"`        // Optional: who is updating this task

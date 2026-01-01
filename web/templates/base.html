@@ -31,7 +31,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/styles.css?v=1">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -220,6 +220,14 @@
                                 </label>
                             </div>
                         </div>
+
+                        <div class="space-y-2">
+                            <span class="text-sm font-medium text-foreground">Tags</span>
+                            <div id="panel-tags-container" class="tags-input-container">
+                                <div id="panel-tags-list" class="tags-list"></div>
+                                <input type="text" id="panel-tag-input" class="input-field" placeholder="Type a tag and press Enter...">
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -292,6 +300,14 @@
                             <input type="radio" name="priority" value="high" class="sr-only peer">
                             <span class="priority-badge priority-high peer-checked:ring-2 peer-checked:ring-destructive peer-checked:ring-offset-2 peer-checked:ring-offset-background">High</span>
                         </label>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-sm font-medium text-foreground">Tags</label>
+                    <div id="modal-tags-container" class="tags-input-container">
+                        <div id="modal-tags-list" class="tags-list"></div>
+                        <input type="text" id="modal-tag-input" class="input-field" placeholder="Type a tag and press Enter...">
                     </div>
                 </div>
 
@@ -442,7 +458,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=1"></script>
 </body>
 </html>
 {{end}}

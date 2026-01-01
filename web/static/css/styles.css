@@ -1065,6 +1065,120 @@ html.dark .task-card.no-test {
 }
 
 /* ============================================
+   Task Tags
+   ============================================ */
+
+/* Tags container - between header and meta */
+.task-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Individual tag badge - pill shaped */
+.task-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.4;
+    border: 1px solid;
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: opacity 0.15s ease;
+}
+
+.task-tag:hover {
+    opacity: 0.85;
+}
+
+/* ============================================
+   Tags Input Component
+   ============================================ */
+
+/* Container for the entire tags input */
+.tags-input-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* List of current tags */
+.tags-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    min-height: 1.5rem;
+}
+
+/* Empty state for tags list */
+.tags-list:empty::before {
+    content: 'No tags';
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+/* Editable tag badge (in input forms) - with remove button */
+.tag-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.375rem 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    border: 1px solid;
+    white-space: nowrap;
+    max-width: 150px;
+    transition: opacity 0.15s ease;
+}
+
+/* Tag text content */
+.tag-badge-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Remove button on tag badge */
+.tag-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 50%;
+    opacity: 0.6;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.tag-remove-btn:hover {
+    opacity: 1;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.dark .tag-remove-btn:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.tag-remove-btn svg {
+    width: 10px;
+    height: 10px;
+}
+
+/* ============================================
    Column Management Styles
    ============================================ */
 

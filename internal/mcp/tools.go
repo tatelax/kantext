@@ -70,6 +70,13 @@ func (h *ToolHandler) GetTools() []Tool {
 						Type:        "string",
 						Description: "Task priority: 'high', 'medium', or 'low'. Defaults to 'medium' if not specified.",
 					},
+					"tags": {
+						Type:        "array",
+						Description: "Array of tags for categorization (e.g., ['frontend', 'bug', 'urgent'])",
+						Items: &PropertyItems{
+							Type: "string",
+						},
+					},
 					"requires_test": {
 						Type:        "boolean",
 						Description: "Whether a passing test is required to complete this task. Defaults to false.",
@@ -99,6 +106,13 @@ func (h *ToolHandler) GetTools() []Tool {
 					"priority": {
 						Type:        "string",
 						Description: "Task priority: 'high', 'medium', or 'low'",
+					},
+					"tags": {
+						Type:        "array",
+						Description: "Array of tags for categorization (e.g., ['frontend', 'bug', 'urgent'])",
+						Items: &PropertyItems{
+							Type: "string",
+						},
 					},
 					"requires_test": {
 						Type:        "boolean",
@@ -262,6 +276,9 @@ func formatTask(t *models.Task) string {
 	sb.WriteString(fmt.Sprintf("- [%s] %s %s\n", statusCheckbox(t.TestStatus), priorityEmoji, t.Title))
 	sb.WriteString(fmt.Sprintf("  ID: %s\n", t.ID))
 	sb.WriteString(fmt.Sprintf("  Priority: %s\n", t.Priority))
+	if len(t.Tags) > 0 {
+		sb.WriteString(fmt.Sprintf("  Tags: %s\n", strings.Join(t.Tags, ", ")))
+	}
 	sb.WriteString(fmt.Sprintf("  Requires Test: %t\n", t.RequiresTest))
 
 	if t.HasTest() {
@@ -319,6 +336,9 @@ func (h *ToolHandler) getTask(args map[string]interface{}) ToolResult {
 	sb.WriteString(fmt.Sprintf("**ID:** %s\n", task.ID))
 	sb.WriteString(fmt.Sprintf("**Priority:** %s\n", task.Priority))
 	sb.WriteString(fmt.Sprintf("**Column:** %s\n", task.Column))
+	if len(task.Tags) > 0 {
+		sb.WriteString(fmt.Sprintf("**Tags:** %s\n", strings.Join(task.Tags, ", ")))
+	}
 	sb.WriteString(fmt.Sprintf("**Requires Test:** %t\n", task.RequiresTest))
 
 	// Only show test info if task has tests
@@ -376,6 +396,16 @@ func (h *ToolHandler) createTask(args map[string]interface{}) ToolResult {
 		}
 	}
 
+	// Parse tags array
+	var tags []string
+	if tagsRaw, ok := args["tags"].([]interface{}); ok {
+		for _, tagRaw := range tagsRaw {
+			if tag, ok := tagRaw.(string); ok && tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+	}
+
 	// Set requires_test if provided
 	var requiresTestPtr *bool
 	if hasRequiresTest {
@@ -386,6 +416,7 @@ func (h *ToolHandler) createTask(args map[string]interface{}) ToolResult {
 		Title:              title,
 		AcceptanceCriteria: acceptanceCriteria,
 		Priority:           priority,
+		Tags:               tags,
 		RequiresTest:       requiresTestPtr,
 	}
 
@@ -467,6 +498,16 @@ func (h *ToolHandler) updateTask(args map[string]interface{}) ToolResult {
 	}
 	if requiresTest, ok := args["requires_test"].(bool); ok {
 		req.RequiresTest = &requiresTest
+	}
+	// Parse tags array
+	if tagsRaw, ok := args["tags"].([]interface{}); ok {
+		var tags []string
+		for _, tagRaw := range tagsRaw {
+			if tag, ok := tagRaw.(string); ok && tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+		req.Tags = tags
 	}
 	// Parse tests array
 	if testsRaw, ok := args["tests"].([]interface{}); ok {

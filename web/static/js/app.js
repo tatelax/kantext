@@ -53,6 +53,16 @@ const panelSaveBtn = document.getElementById('panel-save-btn');
 let currentPanelTask = null;
 let panelOriginalValues = null;
 
+// Tags input elements
+const modalTagsList = document.getElementById('modal-tags-list');
+const modalTagInput = document.getElementById('modal-tag-input');
+const panelTagsList = document.getElementById('panel-tags-list');
+const panelTagInput = document.getElementById('panel-tag-input');
+
+// Current tags arrays for modal and panel
+let modalTags = [];
+let panelTags = [];
+
 async function loadConfig() {
     try {
         const response = await fetch(`${API_BASE}/config`);
@@ -78,6 +88,224 @@ function isTaskStale(task) {
     const diffMs = now - updatedAt;
     const diffDays = diffMs / (1000 * 60 * 60 * 24);
     return diffDays > staleThresholdDays;
+}
+
+// ============================================
+// Tag Color Functions
+// ============================================
+
+/**
+ * Predefined color palette for tags that works well in both light and dark modes.
+ * These colors are carefully selected to be readable and visually appealing.
+ */
+const TAG_COLORS = [
+    { bg: 'rgba(59, 130, 246, 0.15)', text: '#3b82f6', border: 'rgba(59, 130, 246, 0.3)' },   // Blue
+    { bg: 'rgba(16, 185, 129, 0.15)', text: '#10b981', border: 'rgba(16, 185, 129, 0.3)' },  // Emerald
+    { bg: 'rgba(245, 158, 11, 0.15)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.3)' },  // Amber
+    { bg: 'rgba(239, 68, 68, 0.15)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.3)' },    // Red
+    { bg: 'rgba(168, 85, 247, 0.15)', text: '#a855f7', border: 'rgba(168, 85, 247, 0.3)' },  // Purple
+    { bg: 'rgba(236, 72, 153, 0.15)', text: '#ec4899', border: 'rgba(236, 72, 153, 0.3)' },  // Pink
+    { bg: 'rgba(6, 182, 212, 0.15)', text: '#06b6d4', border: 'rgba(6, 182, 212, 0.3)' },    // Cyan
+    { bg: 'rgba(132, 204, 22, 0.15)', text: '#84cc16', border: 'rgba(132, 204, 22, 0.3)' },  // Lime
+    { bg: 'rgba(249, 115, 22, 0.15)', text: '#f97316', border: 'rgba(249, 115, 22, 0.3)' },  // Orange
+    { bg: 'rgba(99, 102, 241, 0.15)', text: '#6366f1', border: 'rgba(99, 102, 241, 0.3)' },  // Indigo
+    { bg: 'rgba(20, 184, 166, 0.15)', text: '#14b8a6', border: 'rgba(20, 184, 166, 0.3)' },  // Teal
+    { bg: 'rgba(251, 191, 36, 0.15)', text: '#fbbf24', border: 'rgba(251, 191, 36, 0.3)' },  // Yellow
+];
+
+/**
+ * Generate a deterministic hash from a string.
+ * Uses a simple but effective hash function for consistent results.
+ * @param {string} str - The string to hash
+ * @returns {number} - A non-negative integer hash value
+ */
+function hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+}
+
+/**
+ * Get a deterministic color for a tag based on its name.
+ * The same tag will always get the same color.
+ * @param {string} tag - The tag name
+ * @returns {Object} - Object with bg, text, and border color values
+ */
+function getTagColor(tag) {
+    const hash = hashString(tag.toLowerCase());
+    return TAG_COLORS[hash % TAG_COLORS.length];
+}
+
+/**
+ * Create HTML for tag badges
+ * @param {string[]} tags - Array of tag names
+ * @returns {string} - HTML string for tag badges
+ */
+function createTagBadgesHtml(tags) {
+    if (!tags || tags.length === 0) return '';
+
+    const badgesHtml = tags.map(tag => {
+        const color = getTagColor(tag);
+        return `<span class="task-tag" style="background-color: ${color.bg}; color: ${color.text}; border-color: ${color.border};" title="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`;
+    }).join('');
+
+    return `<div class="task-tags">${badgesHtml}</div>`;
+}
+
+// ============================================
+// Tags Input Management Functions
+// ============================================
+
+/**
+ * Create an editable tag badge with remove button
+ * @param {string} tag - The tag name
+ * @param {Function} onRemove - Callback when remove is clicked
+ * @returns {HTMLElement} - The tag badge element
+ */
+function createEditableTagBadge(tag, onRemove) {
+    const color = getTagColor(tag);
+    const badge = document.createElement('span');
+    badge.className = 'tag-badge';
+    badge.style.backgroundColor = color.bg;
+    badge.style.color = color.text;
+    badge.style.borderColor = color.border;
+    badge.dataset.tag = tag;
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'tag-badge-text';
+    textSpan.textContent = tag;
+    textSpan.title = tag;
+    badge.appendChild(textSpan);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'tag-remove-btn';
+    removeBtn.title = 'Remove tag';
+    removeBtn.style.color = color.text;
+    removeBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+    removeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onRemove(tag);
+    });
+    badge.appendChild(removeBtn);
+
+    return badge;
+}
+
+/**
+ * Render tags in a tags list container
+ * @param {HTMLElement} container - The container element
+ * @param {string[]} tags - Array of tag names
+ * @param {Function} onRemove - Callback when a tag is removed
+ */
+function renderTagsList(container, tags, onRemove) {
+    container.innerHTML = '';
+    tags.forEach(tag => {
+        const badge = createEditableTagBadge(tag, onRemove);
+        container.appendChild(badge);
+    });
+}
+
+/**
+ * Add a tag to an array and re-render
+ * @param {string} tag - Tag to add
+ * @param {string[]} tagsArray - Array to modify
+ * @param {HTMLElement} container - Container to render
+ * @param {HTMLInputElement} input - Input to clear
+ * @param {Function} onRemove - Remove callback
+ */
+function addTag(tag, tagsArray, container, input, onRemove) {
+    const trimmed = tag.trim().toLowerCase();
+    if (trimmed && !tagsArray.includes(trimmed)) {
+        tagsArray.push(trimmed);
+        renderTagsList(container, tagsArray, onRemove);
+    }
+    input.value = '';
+    input.focus();
+}
+
+/**
+ * Remove a tag from an array and re-render
+ * @param {string} tag - Tag to remove
+ * @param {string[]} tagsArray - Array to modify
+ * @param {HTMLElement} container - Container to render
+ * @param {Function} onRemove - Remove callback (for re-render)
+ */
+function removeTag(tag, tagsArray, container, onRemove) {
+    const index = tagsArray.indexOf(tag);
+    if (index > -1) {
+        tagsArray.splice(index, 1);
+        renderTagsList(container, tagsArray, onRemove);
+    }
+}
+
+// Modal tag removal handler
+function removeModalTag(tag) {
+    removeTag(tag, modalTags, modalTagsList, removeModalTag);
+}
+
+// Panel tag removal handler
+function removePanelTag(tag) {
+    removeTag(tag, panelTags, panelTagsList, removePanelTag);
+}
+
+/**
+ * Initialize tags input event handlers
+ */
+function initTagsInputHandlers() {
+    // Modal: Enter key in input to add tag (prevent form submission)
+    if (modalTagInput) {
+        modalTagInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                addTag(modalTagInput.value, modalTags, modalTagsList, modalTagInput, removeModalTag);
+            }
+        });
+    }
+
+    // Panel: Enter key in input to add tag (prevent form submission)
+    if (panelTagInput) {
+        panelTagInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                addTag(panelTagInput.value, panelTags, panelTagsList, panelTagInput, removePanelTag);
+            }
+        });
+    }
+}
+
+/**
+ * Clear modal tags (call when modal is closed or reset)
+ */
+function clearModalTags() {
+    modalTags = [];
+    if (modalTagsList) {
+        modalTagsList.innerHTML = '';
+    }
+    if (modalTagInput) {
+        modalTagInput.value = '';
+    }
+}
+
+/**
+ * Load tags into panel from a task
+ * @param {Object} task - Task object with tags array
+ */
+function loadPanelTags(task) {
+    panelTags = task.tags ? [...task.tags] : [];
+    if (panelTagsList) {
+        renderTagsList(panelTagsList, panelTags, removePanelTag);
+    }
+    if (panelTagInput) {
+        panelTagInput.value = '';
+    }
 }
 
 // ============================================
@@ -299,7 +527,7 @@ function fuzzyMatch(text, query) {
 
 /**
  * Check if a task matches the search query
- * Searches in: title, acceptance_criteria, author, priority
+ * Searches in: title, acceptance_criteria, author, priority, tags
  * @param {Object} task - Task object
  * @param {string} query - Search query
  * @returns {boolean} - True if task matches
@@ -311,7 +539,8 @@ function taskMatchesSearch(task, query) {
         task.title || '',
         task.acceptance_criteria || '',
         task.updated_by || task.created_by || '',
-        task.priority || ''
+        task.priority || '',
+        ...(task.tags || []) // Include all tags in searchable fields
     ];
 
     return searchableFields.some(field => fuzzyMatch(field, query));
@@ -789,6 +1018,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initDialogBackdropClose();
     initTaskPanel();
     initSearch();
+    initTagsInputHandlers(); // Initialize tags input handlers
     loadSortSettings(); // Load saved sort settings before rendering columns
     loadConfig().then(() => loadColumns()).then(() => loadTasks());
     setupEventListeners();
@@ -1126,6 +1356,7 @@ function initTaskModalKeyboard() {
     const cancelBtn = document.getElementById('task-modal-cancel-btn');
     if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
+            clearModalTags(); // Clear tags when canceling
             taskModal.close();
             document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
         });
@@ -1136,6 +1367,7 @@ function initTaskModalKeyboard() {
         // Escape to close
         if (e.key === 'Escape') {
             e.preventDefault();
+            clearModalTags(); // Clear tags when escaping
             taskModal.close();
             document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
             return;
@@ -2605,11 +2837,15 @@ function createTaskCard(task) {
            </span>`
         : '';
 
+    // Build tags HTML - tags are escaped via escapeHtml in createTagBadgesHtml
+    const tagsHtml = createTagBadgesHtml(task.tags);
+
     card.innerHTML = `
         <div class="task-header">
             ${staleIconHtml}${criteriaIconHtml}<span class="task-title task-title-clickable${task.column === 'done' ? ' task-done' : ''}" title="Click to copy task ID">${escapeHtml(task.title)}</span>
             ${actionsHtml}
         </div>
+        ${tagsHtml}
         ${metaHtml}
     `;
 
@@ -3062,6 +3298,9 @@ function openTaskPanel(task) {
     const priorityRadio = panelTaskForm?.querySelector(`input[name="panel-priority"][value="${task.priority || 'medium'}"]`);
     if (priorityRadio) priorityRadio.checked = true;
 
+    // Load tags into panel
+    loadPanelTags(task);
+
     // Update metadata display
     updatePanelMetadata(task);
 
@@ -3070,6 +3309,7 @@ function openTaskPanel(task) {
         title: task.title || '',
         acceptance_criteria: task.acceptance_criteria || '',
         priority: task.priority || 'medium',
+        tags: task.tags ? [...task.tags] : [],
         requires_test: task.requires_test || false,
         tests: (task.tests || []).map(t => ({ file: t.file || '', func: t.func || '' }))
     };
@@ -3168,6 +3408,7 @@ function getPanelFormValues() {
         title: titleEl?.textContent || '',
         acceptance_criteria: criteriaInput?.value || '',
         priority: priorityRadio?.value || 'medium',
+        tags: [...panelTags],
         requires_test: panelRequiresTestCheckbox?.checked || false,
         tests: tests
     };
@@ -3187,6 +3428,22 @@ function testsAreEqual(a, b) {
 }
 
 /**
+ * Compares two tag arrays for equality
+ */
+function tagsAreEqual(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    // Sort both arrays to compare regardless of order
+    const sortedA = [...a].sort();
+    const sortedB = [...b].sort();
+    for (let i = 0; i < sortedA.length; i++) {
+        if (sortedA[i] !== sortedB[i]) return false;
+    }
+    return true;
+}
+
+/**
  * Checks if the panel form has unsaved changes
  */
 function panelHasChanges() {
@@ -3197,6 +3454,7 @@ function panelHasChanges() {
     return current.title !== panelOriginalValues.title ||
            current.acceptance_criteria !== panelOriginalValues.acceptance_criteria ||
            current.priority !== panelOriginalValues.priority ||
+           !tagsAreEqual(current.tags, panelOriginalValues.tags) ||
            current.requires_test !== panelOriginalValues.requires_test ||
            !testsAreEqual(current.tests, panelOriginalValues.tests);
 }
@@ -3360,6 +3618,7 @@ async function handlePanelFormSubmit(e) {
         title: title,
         acceptance_criteria: formData.get('acceptance_criteria'),
         priority: formData.get('panel-priority'),
+        tags: panelTags,
         requires_test: panelRequiresTestCheckbox?.checked || false,
         tests: formValues.tests
     };
@@ -3551,12 +3810,14 @@ async function handleFormSubmit(e) {
         title: formData.get('title'),
         acceptance_criteria: formData.get('acceptance_criteria'),
         priority: formData.get('priority'),
+        tags: modalTags.length > 0 ? modalTags : undefined,
         requires_test: requiresTestCheckbox ? requiresTestCheckbox.checked : false
     };
 
     try {
         await createTask(data);
         showNotification(`"${data.title}" was created successfully!`, 'success');
+        clearModalTags(); // Clear tags after successful creation
         taskModal.close();
         document.activeElement?.blur(); // Return focus to document for keyboard shortcuts
         await loadTasks();

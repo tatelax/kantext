@@ -155,6 +155,15 @@ func applyMetadata(task *models.Task, key, value string) {
 		task.ID = value
 	case "priority":
 		task.Priority = models.Priority(value)
+	case "tags":
+		// Parse tags as comma-separated values
+		if value != "" {
+			tags := strings.Split(value, ",")
+			for i, tag := range tags {
+				tags[i] = strings.TrimSpace(tag)
+			}
+			task.Tags = tags
+		}
 	case "requires_test":
 		task.RequiresTest = value == "true"
 	case "test":
@@ -689,6 +698,12 @@ func (s *TaskStore) writeTask(file *os.File, task *models.Task) {
 	// Write metadata as nested bullet points
 	fmt.Fprintf(file, "  - id: %s\n", task.ID)
 	fmt.Fprintf(file, "  - priority: %s\n", task.Priority)
+
+	// Write tags as comma-separated values
+	if len(task.Tags) > 0 {
+		fmt.Fprintf(file, "  - tags: %s\n", strings.Join(task.Tags, ", "))
+	}
+
 	fmt.Fprintf(file, "  - requires_test: %t\n", task.RequiresTest)
 
 	// Write all tests
@@ -945,6 +960,7 @@ func (s *TaskStore) Create(req models.CreateTaskRequest) (*models.Task, error) {
 		Title:              req.Title,
 		AcceptanceCriteria: req.AcceptanceCriteria,
 		Priority:           priority,
+		Tags:               req.Tags,
 		RequiresTest:       requiresTest,
 		Column:             column,
 		TestStatus:         models.TestStatusPending,
@@ -986,6 +1002,9 @@ func (s *TaskStore) Update(id string, req models.UpdateTaskRequest) (*models.Tas
 	}
 	if req.Column != nil {
 		task.Column = *req.Column
+	}
+	if req.Tags != nil {
+		task.Tags = req.Tags
 	}
 	if req.RequiresTest != nil {
 		task.RequiresTest = *req.RequiresTest
