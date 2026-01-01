@@ -252,6 +252,7 @@ function removeModalTag(tag) {
 // Panel tag removal handler
 function removePanelTag(tag) {
     removeTag(tag, panelTags, panelTagsList, removePanelTag);
+    updatePanelSaveButton();
 }
 
 /**
@@ -276,6 +277,7 @@ function initTagsInputHandlers() {
                 e.preventDefault();
                 e.stopPropagation();
                 addTag(panelTagInput.value, panelTags, panelTagsList, panelTagInput, removePanelTag);
+                updatePanelSaveButton();
             }
         });
     }

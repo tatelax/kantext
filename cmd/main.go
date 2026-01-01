@@ -151,16 +151,16 @@ func main() {
 
 	// Start server
 	fmt.Printf(`
-╔════════════════════════════════════════════════════════════╗
-║                     Kantext Web Server                     ║
-║    Test-Driven Development meets Visual Task Management    ║
-╠════════════════════════════════════════════════════════════╣
+╔════════════════════════════════════════════════════════════════╗
+║                       Kantext Web Server                       ║
+║    Behavior-Driven Development meets Visual Task Management    ║
+╠════════════════════════════════════════════════════════════════╣
 ║  Server running at: http://localhost:%s
 ║  WebSocket endpoint: ws://localhost:%s/ws
 ║  Working directory: %s
 ║  Tasks file: %s
 ║  Real-time updates: ENABLED
-╚════════════════════════════════════════════════════════════╝
+╚════════════════════════════════════════════════════════════════╝
 `, *port, *port, workDir, tasksFile)
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
