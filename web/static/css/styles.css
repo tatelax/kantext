@@ -1896,7 +1896,7 @@ body.resizing-panel * {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    margin-left: 0.5rem;
+    margin-left: 1.5rem;
     padding-left: 1rem;
     padding-top: 0.5rem;
 }
