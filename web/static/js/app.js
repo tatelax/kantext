@@ -2341,6 +2341,9 @@ function renderTasks() {
     if (currentSearchQuery) {
         applySearchFilter();
     }
+
+    // Update page title to reflect uncommitted task count
+    updatePageTitle();
 }
 
 /**
@@ -2578,6 +2581,30 @@ function getFirstName(fullName) {
  */
 function isUncommitted(author) {
     return !author || author === 'Not Committed Yet';
+}
+
+/**
+ * Count the number of uncommitted tasks
+ */
+function countUncommittedTasks() {
+    return tasks.filter(task => {
+        const taskAuthor = task.updated_by || task.created_by || '';
+        return isUncommitted(taskAuthor);
+    }).length;
+}
+
+/**
+ * Update the page title to show uncommitted task count
+ */
+function updatePageTitle() {
+    const uncommittedCount = countUncommittedTasks();
+    const baseTitle = 'Kantext';
+
+    if (uncommittedCount > 0) {
+        document.title = `${baseTitle} [${uncommittedCount} Uncommitted]`;
+    } else {
+        document.title = baseTitle;
+    }
 }
 
 /**
