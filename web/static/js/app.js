@@ -2471,7 +2471,13 @@ function updateTaskCard(card, task) {
             }
         }
     } else if (newMetaHtml) {
-        card.insertAdjacentHTML('beforeend', newMetaHtml);
+        // Insert metadata after header but before tags
+        const header = card.querySelector('.task-header');
+        if (header) {
+            header.insertAdjacentHTML('afterend', newMetaHtml);
+        } else {
+            card.insertAdjacentHTML('afterbegin', newMetaHtml);
+        }
     }
 
     // Handle play button based on test state
@@ -2881,8 +2887,8 @@ function createTaskCard(task) {
             ${staleIconHtml}${criteriaIconHtml}<span class="task-title task-title-clickable${task.column === 'done' ? ' task-done' : ''}" title="Click to copy task ID">${escapeHtml(task.title)}</span>
             ${actionsHtml}
         </div>
-        ${tagsHtml}
         ${metaHtml}
+        ${tagsHtml}
     `;
 
     // Event listeners
