@@ -1054,12 +1054,12 @@ html.dark .task-card {
    Task Tags
    ============================================ */
 
-/* Tags container - between header and meta */
+/* Tags container - below meta */
 .task-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem;
-    margin-bottom: 0.5rem;
+    margin-top: 0.5rem;
 }
 
 /* Individual tag badge - pill shaped */
