@@ -744,19 +744,6 @@ html.dark .task-card {
     }
 }
 
-/* Tasks without tests - subtle diagonal stripe pattern */
-.task-card.no-test {
-    background:
-        repeating-linear-gradient(
-            -45deg,
-            transparent,
-            transparent 20px,
-            hsla(0, 0%, 50%, 0.15) 20px,
-            hsla(0, 0%, 50%, 0.15) 21px
-        ),
-        white;
-}
-
 /* Uncommitted tasks - dashed border */
 .task-card.uncommitted {
     border-style: dashed;
@@ -764,18 +751,6 @@ html.dark .task-card {
 
 .task-card.uncommitted .task-author {
     font-style: italic;
-}
-
-html.dark .task-card.no-test {
-    background:
-        repeating-linear-gradient(
-            -45deg,
-            transparent,
-            transparent 20px,
-            hsla(0, 0%, 50%, 0.15) 20px,
-            hsla(0, 0%, 50%, 0.15) 21px
-        ),
-        black;
 }
 
 /* Task Header */
