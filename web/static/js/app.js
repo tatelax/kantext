@@ -1729,6 +1729,22 @@ function handleWebSocketMessage(msg) {
                 handleRemoteTaskMove(msg.task_id, msg.column);
             }
             break;
+        case 'ai_output':
+            // Claude output streaming
+            handleAIOutput(msg.data);
+            break;
+        case 'ai_started':
+            // Claude process started
+            handleAIStarted(msg.data);
+            break;
+        case 'ai_stopped':
+            // Claude process stopped
+            handleAIStopped(msg.data);
+            break;
+        case 'ai_queue_updated':
+            // AI queue state changed
+            loadAIQueue();
+            break;
         default:
             console.log('Unknown message type:', msg.type);
     }
@@ -1984,6 +2000,9 @@ async function loadTasks() {
         if (!tasksEqual(tasks, newTasks)) {
             tasks = newTasks;
             renderTasks();
+            // Re-render AI queue since it depends on tasks array
+            renderAIQueue();
+            updateQueuePositionBadges();
         }
 
         updatePanelStaleBadge();
@@ -4365,3 +4384,751 @@ function initPanelResize() {
     // Touch events for mobile
     resizeHandle.addEventListener('touchstart', startResize, { passive: false });
 }
+
+// ============================================
+// AI Queue State & Elements
+// ============================================
+
+let aiQueue = [];           // Array of task IDs in queue
+let aiActiveTaskId = null;  // Currently active task ID
+let aiSession = null;       // Current AI session state
+let aiSidebarOpen = false;
+
+const aiQueueToggleBtn = document.getElementById('ai-queue-toggle-btn');
+const aiQueueSidebar = document.getElementById('ai-queue-sidebar');
+const aiQueueOverlay = document.getElementById('ai-queue-overlay');
+const aiQueueList = document.getElementById('ai-queue-list');
+const aiStartBtn = document.getElementById('ai-start-btn');
+const aiStopBtn = document.getElementById('ai-stop-btn');
+const aiChatMessages = document.getElementById('ai-chat-messages');
+const aiChatInput = document.getElementById('ai-chat-input');
+const aiSendBtn = document.getElementById('ai-send-btn');
+const aiChatTaskTitle = document.getElementById('ai-chat-task-title');
+
+// ============================================
+// AI Queue Initialization
+// ============================================
+
+function initAIQueue() {
+    if (aiQueueToggleBtn) {
+        aiQueueToggleBtn.addEventListener('click', toggleAIQueueSidebar);
+    }
+    if (aiQueueOverlay) {
+        aiQueueOverlay.addEventListener('click', closeAIQueueSidebar);
+    }
+    if (aiStartBtn) {
+        aiStartBtn.addEventListener('click', handleStartAITask);
+    }
+    if (aiStopBtn) {
+        aiStopBtn.addEventListener('click', handleStopAITask);
+    }
+    if (aiSendBtn) {
+        aiSendBtn.addEventListener('click', handleSendAIMessage);
+    }
+    if (aiChatInput) {
+        aiChatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendAIMessage();
+            }
+        });
+        aiChatInput.addEventListener('input', () => {
+            aiChatInput.style.height = 'auto';
+            aiChatInput.style.height = Math.min(aiChatInput.scrollHeight, 120) + 'px';
+        });
+    }
+
+    initAIQueueResize();
+    initAIQueueDragDrop();
+    loadAIQueue();
+}
+
+// ============================================
+// AI Queue Sidebar Toggle
+// ============================================
+
+function toggleAIQueueSidebar() {
+    if (aiSidebarOpen) {
+        closeAIQueueSidebar();
+    } else {
+        openAIQueueSidebar();
+    }
+}
+
+function openAIQueueSidebar() {
+    if (!aiQueueSidebar) return;
+    aiQueueSidebar.classList.add('open');
+    document.body.classList.add('ai-queue-open');
+    aiSidebarOpen = true;
+    if (taskPanel && taskPanel.classList.contains('open')) {
+        closeTaskPanel();
+    }
+}
+
+function closeAIQueueSidebar() {
+    if (!aiQueueSidebar) return;
+    aiQueueSidebar.classList.remove('open');
+    document.body.classList.remove('ai-queue-open');
+    aiSidebarOpen = false;
+}
+
+// ============================================
+// AI Queue Resize
+// ============================================
+
+function initAIQueueResize() {
+    const resizeHandle = document.getElementById('ai-queue-resize-handle');
+    if (!resizeHandle || !aiQueueSidebar) return;
+
+    const SIDEBAR_MIN_WIDTH = 500;
+    const SIDEBAR_MAX_WIDTH_RATIO = 0.85;
+    const SIDEBAR_WIDTH_STORAGE_KEY = 'kantext-ai-queue-width';
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    // Helper to sync CSS variable for main content margin
+    function syncMainMargin(width) {
+        document.documentElement.style.setProperty('--ai-sidebar-width', width + 'px');
+    }
+
+    const savedWidth = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (savedWidth) {
+        const width = parseInt(savedWidth, 10);
+        if (width >= SIDEBAR_MIN_WIDTH) {
+            aiQueueSidebar.style.width = width + 'px';
+            syncMainMargin(width);
+        }
+    } else {
+        // Set default width
+        syncMainMargin(700);
+    }
+
+    function startResize(e) {
+        e.preventDefault();
+        isResizing = true;
+        startX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        startWidth = aiQueueSidebar.offsetWidth;
+        resizeHandle.classList.add('resizing');
+        document.body.classList.add('resizing-panel');
+        document.addEventListener('mousemove', resize);
+        document.addEventListener('mouseup', stopResize);
+        document.addEventListener('touchmove', resize, { passive: false });
+        document.addEventListener('touchend', stopResize);
+    }
+
+    function resize(e) {
+        if (!isResizing) return;
+        e.preventDefault();
+        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const deltaX = clientX - startX;
+        const newWidth = startWidth + deltaX;
+        const maxWidth = window.innerWidth * SIDEBAR_MAX_WIDTH_RATIO;
+        const clampedWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxWidth, newWidth));
+        aiQueueSidebar.style.width = clampedWidth + 'px';
+        syncMainMargin(clampedWidth);
+    }
+
+    function stopResize() {
+        if (!isResizing) return;
+        isResizing = false;
+        resizeHandle.classList.remove('resizing');
+        document.body.classList.remove('resizing-panel');
+        document.removeEventListener('mousemove', resize);
+        document.removeEventListener('mouseup', stopResize);
+        document.removeEventListener('touchmove', resize);
+        document.removeEventListener('touchend', stopResize);
+        const finalWidth = aiQueueSidebar.offsetWidth;
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, finalWidth.toString());
+        syncMainMargin(finalWidth);
+    }
+
+    resizeHandle.addEventListener('mousedown', startResize);
+    resizeHandle.addEventListener('touchstart', startResize, { passive: false });
+}
+
+// ============================================
+// AI Queue Drag & Drop
+// ============================================
+
+function initAIQueueDragDrop() {
+    if (aiQueueList) {
+        aiQueueList.addEventListener('dragover', handleAIQueueDragOver);
+        aiQueueList.addEventListener('drop', handleAIQueueDrop);
+        aiQueueList.addEventListener('dragleave', handleAIQueueDragLeave);
+    }
+}
+
+function handleAIQueueDragOver(e) {
+    e.preventDefault();  // Must call first to make this a valid drop target
+    if (!draggedTask) return;
+    e.dataTransfer.dropEffect = 'move';
+    aiQueueList.classList.add('drag-over');
+}
+
+function handleAIQueueDrop(e) {
+    e.preventDefault();
+    aiQueueList.classList.remove('drag-over');
+    if (!draggedTask) return;
+    const taskId = draggedTask.dataset.id;
+    if (aiQueue.includes(taskId)) {
+        showNotification('Task already in queue', 'info');
+        return;
+    }
+    addToAIQueue(taskId, -1);
+}
+
+function handleAIQueueDragLeave(e) {
+    if (!aiQueueList.contains(e.relatedTarget)) {
+        aiQueueList.classList.remove('drag-over');
+    }
+}
+
+// ============================================
+// AI Queue API Calls
+// ============================================
+
+async function loadAIQueue() {
+    try {
+        const response = await fetch(API_BASE + '/ai-queue');
+        if (response.ok) {
+            const data = await response.json();
+            aiQueue = data.task_ids || [];
+            aiActiveTaskId = data.active_task_id || null;
+            renderAIQueue();
+            updateQueuePositionBadges();
+            if (aiActiveTaskId) {
+                loadAISession();
+            }
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to load queue:', error);
+    }
+}
+
+async function addToAIQueue(taskId, position) {
+    try {
+        const response = await fetch(API_BASE + '/ai-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId, position: position })
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            showNotification('Task added to AI queue', 'success');
+            if (!aiSidebarOpen) {
+                openAIQueueSidebar();
+            }
+        } else {
+            const error = await response.json();
+            showNotification(error.error || 'Failed to add task', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to add to queue:', error);
+        showNotification('Failed to add task to queue', 'error');
+    }
+}
+
+async function removeFromAIQueue(taskId) {
+    if (taskId === aiActiveTaskId) {
+        showNotification('Stop the task before removing', 'warning');
+        return;
+    }
+    try {
+        const response = await fetch(API_BASE + '/ai-queue/' + taskId, {
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            showNotification('Task removed from queue', 'success');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to remove from queue:', error);
+    }
+}
+
+async function handleStartAITask() {
+    if (aiQueue.length === 0) return;
+    try {
+        const response = await fetch(API_BASE + '/ai-queue/start', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            await loadAISession();
+            showNotification('Started working on task', 'success');
+        } else {
+            const error = await response.json();
+            showNotification(error.error || 'Failed to start task', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to start task:', error);
+        showNotification('Failed to start task', 'error');
+    }
+}
+
+async function handleStopAITask() {
+    try {
+        const response = await fetch(API_BASE + '/ai-queue/stop', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            aiSession = null;
+            renderAIChatMessages();
+            updateChatInputState();
+            showNotification('Stopped working on task', 'success');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to stop task:', error);
+    }
+}
+
+// ============================================
+// AI Chat
+// ============================================
+
+async function loadAISession() {
+    try {
+        const response = await fetch(API_BASE + '/ai-session');
+        if (response.ok) {
+            aiSession = await response.json();
+            renderAIChatMessages();
+            updateChatInputState();
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to load session:', error);
+    }
+}
+
+async function handleSendAIMessage() {
+    const message = aiChatInput.value.trim();
+    if (!message || !aiActiveTaskId) return;
+
+    aiChatInput.value = '';
+    aiChatInput.style.height = 'auto';
+    aiChatInput.disabled = true;
+    aiSendBtn.disabled = true;
+
+    appendChatMessage({ role: 'user', content: message, timestamp: new Date().toISOString() });
+
+    try {
+        const response = await fetch(API_BASE + '/ai-session/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: message })
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.response) {
+                appendChatMessage(data.response);
+            }
+        } else {
+            showNotification('Failed to send message', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to send message:', error);
+        showNotification('Failed to send message', 'error');
+    } finally {
+        aiChatInput.disabled = false;
+        aiSendBtn.disabled = false;
+        aiChatInput.focus();
+    }
+}
+
+function appendChatMessage(message) {
+    if (!aiChatMessages) return;
+    var placeholder = aiChatMessages.querySelector('.ai-chat-placeholder');
+    if (placeholder) {
+        placeholder.remove();
+    }
+    var msgDiv = document.createElement('div');
+    msgDiv.className = 'ai-chat-message ' + message.role;
+    msgDiv.textContent = message.content;
+    aiChatMessages.appendChild(msgDiv);
+    aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+}
+
+function renderAIChatMessages() {
+    if (!aiChatMessages) return;
+
+    // Don't clear chat if we're actively streaming (indicator present)
+    // This prevents HTTP polling from destroying WebSocket-managed streaming state
+    var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
+    if (indicator) {
+        return;
+    }
+
+    while (aiChatMessages.firstChild) {
+        aiChatMessages.removeChild(aiChatMessages.firstChild);
+    }
+
+    if (!aiSession || !aiSession.messages || aiSession.messages.length === 0) {
+        var placeholder = document.createElement('div');
+        placeholder.className = 'ai-chat-placeholder';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '48');
+        svg.setAttribute('height', '48');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1');
+        var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
+        svg.appendChild(path);
+        placeholder.appendChild(svg);
+        var p = document.createElement('p');
+        p.textContent = aiActiveTaskId ? 'Send a message to start' : 'Start a task to begin chatting with AI';
+        placeholder.appendChild(p);
+        aiChatMessages.appendChild(placeholder);
+        return;
+    }
+
+    aiSession.messages.forEach(function(msg) {
+        var msgDiv = document.createElement('div');
+        msgDiv.className = 'ai-chat-message ' + msg.role;
+        msgDiv.textContent = msg.content;
+        aiChatMessages.appendChild(msgDiv);
+    });
+    aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+}
+
+function updateChatInputState() {
+    var hasActiveTask = !!aiActiveTaskId;
+    if (aiChatInput) {
+        aiChatInput.disabled = !hasActiveTask;
+        aiChatInput.placeholder = hasActiveTask ? 'Send a message...' : 'Start a task first...';
+    }
+    if (aiSendBtn) {
+        aiSendBtn.disabled = !hasActiveTask;
+    }
+    if (aiStartBtn) {
+        aiStartBtn.disabled = aiQueue.length === 0 || hasActiveTask;
+    }
+    if (aiStopBtn) {
+        aiStopBtn.style.display = hasActiveTask ? 'flex' : 'none';
+    }
+    if (aiChatTaskTitle) {
+        if (hasActiveTask) {
+            var task = tasks.find(function(t) { return t.id === aiActiveTaskId; });
+            aiChatTaskTitle.textContent = task ? task.title : 'Working...';
+        } else {
+            aiChatTaskTitle.textContent = 'No Active Task';
+        }
+    }
+}
+
+// ============================================
+// AI Streaming Output Handlers
+// ============================================
+
+/**
+ * Handles streaming output from Claude subprocess via WebSocket
+ * @param {Object} data - {task_id, content, type, timestamp}
+ */
+function handleAIOutput(data) {
+    if (!data || !aiChatMessages) return;
+
+    // Remove placeholder if present
+    var placeholder = aiChatMessages.querySelector('.ai-chat-placeholder');
+    if (placeholder) {
+        placeholder.remove();
+    }
+
+    // Remove "Claude is thinking..." indicator when we start receiving output
+    var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+
+    // Get or create the streaming message element
+    var streamingEl = aiChatMessages.querySelector('.ai-streaming-message');
+    if (!streamingEl) {
+        streamingEl = document.createElement('div');
+        streamingEl.className = 'ai-chat-message assistant ai-streaming-message';
+        aiChatMessages.appendChild(streamingEl);
+    }
+
+    // Handle different content types
+    if (data.type === 'json') {
+        // Try to parse Claude CLI's stream-json format
+        try {
+            var event = JSON.parse(data.content);
+
+            // Claude CLI stream-json event types:
+            // - "system": init info (ignore)
+            // - "assistant": Claude's response with message.content[]
+            // - "user": tool results (ignore for now)
+            // - "result": completion marker
+
+            if (event.type === 'assistant' && event.message && event.message.content) {
+                // Extract text from message content blocks
+                var contentBlocks = event.message.content;
+                for (var i = 0; i < contentBlocks.length; i++) {
+                    var block = contentBlocks[i];
+                    if (block.type === 'text' && block.text) {
+                        streamingEl.textContent += block.text;
+                    } else if (block.type === 'tool_use') {
+                        streamingEl.textContent += '\n[Using tool: ' + (block.name || 'unknown') + ']\n';
+                    }
+                }
+            } else if (event.type === 'result') {
+                // Message complete, finalize the streaming element
+                streamingEl.classList.remove('ai-streaming-message');
+                streamingEl = null;
+            }
+            // Ignore "system" and "user" event types
+        } catch (e) {
+            // If JSON parsing fails, just append as text
+            streamingEl.textContent += data.content + '\n';
+        }
+    } else if (data.type === 'error') {
+        // Error output from stderr
+        var errorEl = document.createElement('div');
+        errorEl.className = 'ai-chat-message error';
+        errorEl.textContent = data.content;
+        aiChatMessages.appendChild(errorEl);
+    } else {
+        // Plain text output
+        streamingEl.textContent += data.content + '\n';
+    }
+
+    // Auto-scroll to bottom
+    aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+}
+
+/**
+ * Handles AI process started event
+ * @param {Object} data - {task_id, status}
+ */
+function handleAIStarted(data) {
+    console.log('[AI] Claude started for task:', data.task_id);
+    aiActiveTaskId = data.task_id;
+
+    // Update UI state
+    updateChatInputState();
+    renderAIQueue();
+
+    // Clear previous messages and show streaming indicator
+    if (aiChatMessages) {
+        while (aiChatMessages.firstChild) {
+            aiChatMessages.removeChild(aiChatMessages.firstChild);
+        }
+        var indicator = document.createElement('div');
+        indicator.className = 'ai-streaming-indicator';
+        // Create dots using DOM methods instead of innerHTML
+        var dot1 = document.createElement('span');
+        dot1.className = 'dot';
+        var dot2 = document.createElement('span');
+        dot2.className = 'dot';
+        var dot3 = document.createElement('span');
+        dot3.className = 'dot';
+        var text = document.createTextNode(' Claude is thinking...');
+        indicator.appendChild(dot1);
+        indicator.appendChild(dot2);
+        indicator.appendChild(dot3);
+        indicator.appendChild(text);
+        aiChatMessages.appendChild(indicator);
+    }
+
+    showNotification('Claude started working on task', 'success');
+}
+
+/**
+ * Handles AI process stopped event
+ * @param {Object} data - {task_id, status, error}
+ */
+function handleAIStopped(data) {
+    console.log('[AI] Claude stopped:', data.status, data.error || '');
+
+    // Finalize any streaming message
+    if (aiChatMessages) {
+        var streamingEl = aiChatMessages.querySelector('.ai-streaming-message');
+        if (streamingEl) {
+            streamingEl.classList.remove('ai-streaming-message');
+        }
+
+        // Remove streaming indicator
+        var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
+        if (indicator) {
+            indicator.remove();
+        }
+
+        // Add completion message
+        var statusEl = document.createElement('div');
+        statusEl.className = 'ai-chat-message system';
+        if (data.status === 'completed') {
+            statusEl.textContent = '--- Claude finished ---';
+        } else if (data.status === 'error') {
+            statusEl.textContent = '--- Claude stopped with error: ' + (data.error || 'unknown') + ' ---';
+        } else {
+            statusEl.textContent = '--- Claude stopped ---';
+        }
+        aiChatMessages.appendChild(statusEl);
+        aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+    }
+
+    // Clear active task state
+    aiActiveTaskId = null;
+    aiSession = null;
+
+    // Update UI
+    updateChatInputState();
+    renderAIQueue();
+    loadAIQueue(); // Refresh queue state from server
+
+    if (data.status === 'error') {
+        showNotification('Claude stopped with error: ' + (data.error || 'unknown'), 'error');
+    } else {
+        showNotification('Claude finished working', 'success');
+    }
+}
+
+// ============================================
+// AI Queue Rendering
+// ============================================
+
+function renderAIQueue() {
+    if (!aiQueueList) return;
+    while (aiQueueList.firstChild) {
+        aiQueueList.removeChild(aiQueueList.firstChild);
+    }
+
+    if (aiQueue.length === 0) {
+        var empty = document.createElement('div');
+        empty.className = 'ai-queue-empty';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '32');
+        svg.setAttribute('height', '32');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.5');
+        var path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path1.setAttribute('d', 'M12 8V4H8');
+        svg.appendChild(path1);
+        var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('width', '16');
+        rect.setAttribute('height', '12');
+        rect.setAttribute('x', '4');
+        rect.setAttribute('y', '8');
+        rect.setAttribute('rx', '2');
+        svg.appendChild(rect);
+        empty.appendChild(svg);
+        var p = document.createElement('p');
+        p.textContent = 'Drag tasks here to queue them for AI assistance';
+        empty.appendChild(p);
+        aiQueueList.appendChild(empty);
+        updateChatInputState();
+        return;
+    }
+
+    aiQueue.forEach(function(taskId, index) {
+        var task = tasks.find(function(t) { return t.id === taskId; });
+        if (!task) return;
+        var isActive = taskId === aiActiveTaskId;
+        var card = createAIQueueCard(task, index, isActive);
+        aiQueueList.appendChild(card);
+    });
+    updateChatInputState();
+}
+
+function createAIQueueCard(task, index, isActive) {
+    var card = document.createElement('div');
+    card.className = 'ai-queue-card' + (isActive ? ' active' : '');
+    card.dataset.taskId = task.id;
+
+    var header = document.createElement('div');
+    header.className = 'ai-queue-card-header';
+
+    var position = document.createElement('span');
+    position.className = 'ai-queue-position';
+    if (isActive) {
+        var spinner = document.createElement('span');
+        spinner.className = 'spinner';
+        position.appendChild(spinner);
+    } else {
+        position.textContent = (index + 1).toString();
+    }
+    header.appendChild(position);
+
+    var title = document.createElement('span');
+    title.className = 'ai-queue-card-title';
+    title.textContent = task.title;
+    header.appendChild(title);
+
+    if (!isActive) {
+        var removeBtn = document.createElement('button');
+        removeBtn.className = 'ai-queue-remove-btn';
+        removeBtn.title = 'Remove from queue';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '12');
+        svg.setAttribute('height', '12');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        var line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line1.setAttribute('x1', '18');
+        line1.setAttribute('y1', '6');
+        line1.setAttribute('x2', '6');
+        line1.setAttribute('y2', '18');
+        svg.appendChild(line1);
+        var line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line2.setAttribute('x1', '6');
+        line2.setAttribute('y1', '6');
+        line2.setAttribute('x2', '18');
+        line2.setAttribute('y2', '18');
+        svg.appendChild(line2);
+        removeBtn.appendChild(svg);
+        removeBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            removeFromAIQueue(task.id);
+        });
+        header.appendChild(removeBtn);
+    }
+
+    card.appendChild(header);
+
+    if (isActive) {
+        var status = document.createElement('div');
+        status.className = 'ai-queue-card-status';
+        var badge = document.createElement('span');
+        badge.className = 'ai-working-badge';
+        var badgeSpinner = document.createElement('span');
+        badgeSpinner.className = 'spinner';
+        badge.appendChild(badgeSpinner);
+        badge.appendChild(document.createTextNode('Working...'));
+        status.appendChild(badge);
+        card.appendChild(status);
+    }
+
+    return card;
+}
+
+function updateQueuePositionBadges() {
+    document.querySelectorAll('.queue-position-badge').forEach(function(b) { b.remove(); });
+
+    aiQueue.forEach(function(taskId, index) {
+        var card = document.querySelector('.task-card[data-id="' + taskId + '"]');
+        if (!card) return;
+        var isActive = taskId === aiActiveTaskId;
+        var badge = document.createElement('span');
+        badge.className = 'queue-position-badge' + (isActive ? ' working' : '');
+        if (isActive) {
+            var spinner = document.createElement('span');
+            spinner.className = 'spinner';
+            badge.appendChild(spinner);
+        } else {
+            badge.textContent = (index + 1).toString();
+        }
+        card.style.position = 'relative';
+        card.appendChild(badge);
+    });
+}
+
+// Initialize AI Queue after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(initAIQueue, 100);
+});

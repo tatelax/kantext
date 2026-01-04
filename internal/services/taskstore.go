@@ -62,10 +62,16 @@ type TestRunnerSettings struct {
 	NoTestsString string `yaml:"no_tests_string,omitempty"`
 }
 
+// AIQueueSettings holds AI queue configuration from YAML front matter
+type AIQueueSettings struct {
+	ActiveTaskID string `yaml:"active_task_id,omitempty"`
+}
+
 // Settings holds all configurable settings stored in YAML front matter
 type Settings struct {
 	StaleThresholdDays int                `yaml:"stale_threshold_days,omitempty"`
 	TestRunner         TestRunnerSettings `yaml:"test_runner,omitempty"`
+	AIQueue            AIQueueSettings    `yaml:"ai_queue,omitempty"`
 }
 
 // GetStaleThresholdDays returns the stale threshold, or default if not set
@@ -128,6 +134,11 @@ type TaskStore struct {
 	settings        Settings                   // Settings from YAML front matter
 	taskLineNumbers map[string]int             // Maps task ID to line number for git blame
 
+	// AI Queue state (in-memory only, not persisted to TASKS.md)
+	aiQueue      []string             // Ordered list of task IDs in the AI queue
+	activeTaskID string               // Currently active task ID (not persisted)
+	aiSession    *models.AISession    // Current AI conversation
+
 	// Async save infrastructure
 	saveChan  chan struct{}  // Channel to trigger background saves
 	saveErr   error          // Last save error (for monitoring)
@@ -144,6 +155,7 @@ func NewTaskStore(workingDir string) *TaskStore {
 		columns:         []models.ColumnDefinition{},
 		settings:        Settings{},
 		taskLineNumbers: make(map[string]int),
+		aiQueue:         []string{},
 		saveChan:        make(chan struct{}, 1), // Buffered channel of 1 for coalescing saves
 	}
 	store.Load()
@@ -294,6 +306,8 @@ func (s *TaskStore) Load() error {
 	s.tasks = make(map[string]*models.Task)
 	s.columns = []models.ColumnDefinition{}
 	s.settings = Settings{} // Reset settings
+	// Note: aiQueue is NOT reset here - it's in-memory only and persists across file reloads
+	// It only resets when the server restarts (in NewTaskStore)
 	scanner := bufio.NewScanner(file)
 	var currentColumn models.Column
 	columnOrder := 0
@@ -301,6 +315,7 @@ func (s *TaskStore) Load() error {
 	var currentTask *models.Task
 	var currentTaskLine int // 1-indexed line number where current task starts
 	var lines []string
+	inAIQueueSection := false // Track if we're parsing the AI Queue section (to skip it)
 
 	// Reset line numbers map for git blame lookup
 	s.taskLineNumbers = make(map[string]int)
@@ -366,6 +381,15 @@ func (s *TaskStore) Load() error {
 		if matches := columnRegex.FindStringSubmatch(trimmedLine); matches != nil {
 			finalizeTask()
 			columnName := strings.TrimSpace(matches[1])
+
+			// Check if this is the AI Queue section
+			if columnName == "AI Queue" {
+				inAIQueueSection = true
+				continue
+			}
+
+			// Regular column section
+			inAIQueueSection = false
 			slug := models.NameToSlug(columnName)
 			currentColumn = models.Column(slug)
 
@@ -375,6 +399,11 @@ func (s *TaskStore) Load() error {
 				Order: columnOrder,
 			})
 			columnOrder++
+			continue
+		}
+
+		// Skip AI Queue section entirely - it's now in-memory only
+		if inAIQueueSection {
 			continue
 		}
 
@@ -699,6 +728,8 @@ func (s *TaskStore) saveToFile() error {
 		}
 		fmt.Fprintln(file, "")
 	}
+
+	// AI Queue is now in-memory only, not written to TASKS.md
 
 	return nil
 }
@@ -1311,4 +1342,250 @@ func (s *TaskStore) getGitBlameWithContent() []BlameEntry {
 	}
 
 	return entries
+}
+
+// ===== AI Queue Management =====
+
+// GetAIQueue returns the current AI queue state
+func (s *TaskStore) GetAIQueue() models.AIQueueState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Make a copy of the queue
+	queueCopy := make([]string, len(s.aiQueue))
+	copy(queueCopy, s.aiQueue)
+
+	return models.AIQueueState{
+		ActiveTaskID: s.activeTaskID, // Use in-memory field
+		TaskIDs:      queueCopy,
+	}
+}
+
+// AddToQueue adds a task to the AI queue at the specified position
+// Use position -1 to add at the end
+// Note: Queue is in-memory only, not persisted to TASKS.md
+func (s *TaskStore) AddToQueue(taskID string, position int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Verify task exists
+	if _, ok := s.tasks[taskID]; !ok {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+
+	// Check if already in queue
+	for _, id := range s.aiQueue {
+		if id == taskID {
+			return nil // Already in queue, silently ignore
+		}
+	}
+
+	// Add at position
+	if position < 0 || position >= len(s.aiQueue) {
+		s.aiQueue = append(s.aiQueue, taskID)
+	} else {
+		// Insert at position
+		s.aiQueue = append(s.aiQueue[:position], append([]string{taskID}, s.aiQueue[position:]...)...)
+	}
+
+	return nil // No file persistence for queue
+}
+
+// RemoveFromQueue removes a task from the AI queue
+// Note: Queue is in-memory only, not persisted to TASKS.md
+func (s *TaskStore) RemoveFromQueue(taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Cannot remove the active task
+	if s.activeTaskID == taskID {
+		return fmt.Errorf("cannot remove active task from queue")
+	}
+
+	// Find and remove
+	for i, id := range s.aiQueue {
+		if id == taskID {
+			s.aiQueue = append(s.aiQueue[:i], s.aiQueue[i+1:]...)
+			return nil // No file persistence for queue
+		}
+	}
+
+	return nil // Not in queue, no error
+}
+
+// ReorderQueue sets the new order of tasks in the queue
+// Note: Queue is in-memory only, not persisted to TASKS.md
+func (s *TaskStore) ReorderQueue(taskIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Validate that active task stays at position 0 if it exists
+	if s.activeTaskID != "" && len(taskIDs) > 0 && taskIDs[0] != s.activeTaskID {
+		return fmt.Errorf("cannot move active task from position 0")
+	}
+
+	// Validate all task IDs exist and are currently in the queue
+	currentSet := make(map[string]bool)
+	for _, id := range s.aiQueue {
+		currentSet[id] = true
+	}
+
+	for _, id := range taskIDs {
+		if !currentSet[id] {
+			return fmt.Errorf("task %s not in queue", id)
+		}
+	}
+
+	// Verify same length (no additions or removals through reorder)
+	if len(taskIDs) != len(s.aiQueue) {
+		return fmt.Errorf("reorder must contain all queue items")
+	}
+
+	s.aiQueue = taskIDs
+	return nil // No file persistence for queue
+}
+
+// SetActiveTask marks a task as the one currently being worked on by AI
+// Note: Active task is in-memory only, not persisted to TASKS.md
+func (s *TaskStore) SetActiveTask(taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Task must be in queue
+	found := false
+	for _, id := range s.aiQueue {
+		if id == taskID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("task %s not in queue", taskID)
+	}
+
+	s.activeTaskID = taskID
+	return nil // No file persistence for active task
+}
+
+// ClearActiveTask clears the active task (stops AI work)
+// Note: Active task is in-memory only, not persisted to TASKS.md
+func (s *TaskStore) ClearActiveTask() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.activeTaskID = ""
+	return nil // No file persistence for active task
+}
+
+// GetQueuePosition returns the position of a task in the queue (-1 if not found)
+func (s *TaskStore) GetQueuePosition(taskID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for i, id := range s.aiQueue {
+		if id == taskID {
+			return i
+		}
+	}
+	return -1
+}
+
+// StartNextTask starts working on the first task in the queue
+// Note: Active task is in-memory only, but task column change IS persisted
+func (s *TaskStore) StartNextTask() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.aiQueue) == 0 {
+		return "", fmt.Errorf("queue is empty")
+	}
+
+	if s.activeTaskID != "" {
+		return "", fmt.Errorf("already working on a task")
+	}
+
+	taskID := s.aiQueue[0]
+	s.activeTaskID = taskID
+
+	// Move task to in_progress column (this needs to be persisted)
+	if task, ok := s.tasks[taskID]; ok {
+		task.Column = models.Column("in_progress")
+		task.UpdatedAt = time.Now().UTC()
+	}
+
+	// Initialize a new AI session (in-memory only)
+	s.aiSession = &models.AISession{
+		TaskID:   taskID,
+		Messages: []models.ChatMessage{},
+		Started:  time.Now(),
+	}
+
+	// Save to persist the task column change
+	if err := s.saveLocked(); err != nil {
+		return "", err
+	}
+
+	return taskID, nil
+}
+
+// StopCurrentTask stops working on the current task and removes it from queue
+// Note: Queue and active task are in-memory only, no file persistence needed
+func (s *TaskStore) StopCurrentTask() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeTaskID == "" {
+		return nil // Nothing to stop
+	}
+
+	// Remove the active task from queue
+	for i, id := range s.aiQueue {
+		if id == s.activeTaskID {
+			s.aiQueue = append(s.aiQueue[:i], s.aiQueue[i+1:]...)
+			break
+		}
+	}
+
+	s.activeTaskID = ""
+	s.aiSession = nil
+
+	return nil // No file persistence for queue/active task
+}
+
+// GetAISession returns the current AI session
+func (s *TaskStore) GetAISession() *models.AISession {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.aiSession == nil {
+		return nil
+	}
+
+	// Return a copy
+	session := &models.AISession{
+		TaskID:   s.aiSession.TaskID,
+		Started:  s.aiSession.Started,
+		Messages: make([]models.ChatMessage, len(s.aiSession.Messages)),
+	}
+	copy(session.Messages, s.aiSession.Messages)
+	return session
+}
+
+// AddChatMessage adds a message to the current AI session
+func (s *TaskStore) AddChatMessage(role, content string) (*models.ChatMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.aiSession == nil {
+		return nil, fmt.Errorf("no active AI session")
+	}
+
+	msg := models.ChatMessage{
+		Role:      role,
+		Content:   content,
+		Timestamp: time.Now(),
+	}
+	s.aiSession.Messages = append(s.aiSession.Messages, msg)
+
+	return &msg, nil
 }
