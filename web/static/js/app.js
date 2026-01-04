@@ -2522,9 +2522,9 @@ function updateTaskCard(card, task) {
         }
     } else {
         // Remove play button since no test is configured
-        const actionsContainer = card.querySelector('.task-actions');
-        if (actionsContainer) {
-            actionsContainer.remove();
+        const playBtn = card.querySelector('.play-btn');
+        if (playBtn) {
+            playBtn.remove();
         }
     }
 }
@@ -2826,12 +2826,18 @@ function createTaskCard(task) {
     card.draggable = true;
     card.dataset.id = task.id;
 
-    // Build actions HTML - only include play button if task has a test configured
+    // Build actions HTML - play button only if test configured
     const actionsHtml = hasTest
-        ? `<div class="task-actions">
-               <button class="play-btn" title="Run Test">&#9658;</button>
-           </div>`
+        ? `<div class="task-actions"><button class="play-btn" title="Run Test">&#9658;</button></div>`
         : '';
+
+    // Floating queue button - appears on card hover
+    const floatingQueueBtn = `<button class="floating-queue-btn" title="Add to Queue">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+    </button>`;
 
     // Build meta HTML - show author, date, and optionally test info with icons
     let metaHtml = '';
@@ -2908,6 +2914,7 @@ function createTaskCard(task) {
         </div>
         ${metaHtml}
         ${tagsHtml}
+        ${floatingQueueBtn}
     `;
 
     // Event listeners
@@ -2921,6 +2928,13 @@ function createTaskCard(task) {
             handleRunTest(task.id, playBtn);
         });
     }
+
+    // Floating queue button listener
+    const floatingBtn = card.querySelector('.floating-queue-btn');
+    floatingBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addToAIQueue(task.id, -1);
+    });
 
     // Title click to copy task ID
     titleEl.addEventListener('click', async (e) => {
@@ -2939,9 +2953,10 @@ function createTaskCard(task) {
 
     // Click on card (not title) to open task panel
     card.addEventListener('click', async (e) => {
-        // Only open panel if click wasn't on title or action buttons
+        // Only open panel if click wasn't on title, action buttons, or floating queue button
         if (!e.target.classList.contains('task-title-clickable') &&
-            !e.target.closest('.task-actions')) {
+            !e.target.closest('.task-actions') &&
+            !e.target.closest('.floating-queue-btn')) {
             // Check for unsaved changes before switching tasks
             if (taskPanel?.classList.contains('open') && currentPanelTask?.id !== task.id) {
                 const canClose = await tryCloseTaskPanel();
@@ -4398,6 +4413,7 @@ const aiQueueToggleBtn = document.getElementById('ai-queue-toggle-btn');
 const aiQueueSidebar = document.getElementById('ai-queue-sidebar');
 const aiQueueOverlay = document.getElementById('ai-queue-overlay');
 const aiQueueList = document.getElementById('ai-queue-list');
+const aiQueueCloseBtn = document.getElementById('ai-queue-close-btn');
 const aiStartBtn = document.getElementById('ai-start-btn');
 const aiStopBtn = document.getElementById('ai-stop-btn');
 const aiChatMessages = document.getElementById('ai-chat-messages');
@@ -4412,6 +4428,9 @@ const aiChatTaskTitle = document.getElementById('ai-chat-task-title');
 function initAIQueue() {
     if (aiQueueToggleBtn) {
         aiQueueToggleBtn.addEventListener('click', toggleAIQueueSidebar);
+    }
+    if (aiQueueCloseBtn) {
+        aiQueueCloseBtn.addEventListener('click', closeAIQueueSidebar);
     }
     if (aiQueueOverlay) {
         aiQueueOverlay.addEventListener('click', closeAIQueueSidebar);
@@ -4439,7 +4458,6 @@ function initAIQueue() {
     }
 
     initAIQueueResize();
-    initAIQueueDragDrop();
     loadAIQueue();
 }
 
@@ -4458,6 +4476,7 @@ function toggleAIQueueSidebar() {
 function openAIQueueSidebar() {
     if (!aiQueueSidebar) return;
     aiQueueSidebar.classList.add('open');
+    if (aiQueueOverlay) aiQueueOverlay.classList.add('visible');
     document.body.classList.add('ai-queue-open');
     aiSidebarOpen = true;
     if (taskPanel && taskPanel.classList.contains('open')) {
@@ -4468,6 +4487,7 @@ function openAIQueueSidebar() {
 function closeAIQueueSidebar() {
     if (!aiQueueSidebar) return;
     aiQueueSidebar.classList.remove('open');
+    if (aiQueueOverlay) aiQueueOverlay.classList.remove('visible');
     document.body.classList.remove('ai-queue-open');
     aiSidebarOpen = false;
 }
@@ -4546,43 +4566,6 @@ function initAIQueueResize() {
 
     resizeHandle.addEventListener('mousedown', startResize);
     resizeHandle.addEventListener('touchstart', startResize, { passive: false });
-}
-
-// ============================================
-// AI Queue Drag & Drop
-// ============================================
-
-function initAIQueueDragDrop() {
-    if (aiQueueList) {
-        aiQueueList.addEventListener('dragover', handleAIQueueDragOver);
-        aiQueueList.addEventListener('drop', handleAIQueueDrop);
-        aiQueueList.addEventListener('dragleave', handleAIQueueDragLeave);
-    }
-}
-
-function handleAIQueueDragOver(e) {
-    e.preventDefault();  // Must call first to make this a valid drop target
-    if (!draggedTask) return;
-    e.dataTransfer.dropEffect = 'move';
-    aiQueueList.classList.add('drag-over');
-}
-
-function handleAIQueueDrop(e) {
-    e.preventDefault();
-    aiQueueList.classList.remove('drag-over');
-    if (!draggedTask) return;
-    const taskId = draggedTask.dataset.id;
-    if (aiQueue.includes(taskId)) {
-        showNotification('Task already in queue', 'info');
-        return;
-    }
-    addToAIQueue(taskId, -1);
-}
-
-function handleAIQueueDragLeave(e) {
-    if (!aiQueueList.contains(e.relatedTarget)) {
-        aiQueueList.classList.remove('drag-over');
-    }
 }
 
 // ============================================
@@ -4737,6 +4720,31 @@ async function handleSendAIMessage() {
     }
 }
 
+/**
+ * Sends a quick response when user clicks an option
+ * @param {string} response - The option label to send
+ */
+async function sendQuestionResponse(response) {
+    if (!aiActiveTaskId) return;
+
+    // Show the user's selection in chat
+    appendChatMessage({ role: 'user', content: response, timestamp: new Date().toISOString() });
+
+    try {
+        const result = await fetch(API_BASE + '/ai-session/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: response })
+        });
+        if (!result.ok) {
+            showNotification('Failed to send response', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to send response:', error);
+        showNotification('Failed to send response', 'error');
+    }
+}
+
 function appendChatMessage(message) {
     if (!aiChatMessages) return;
     var placeholder = aiChatMessages.querySelector('.ai-chat-placeholder');
@@ -4824,6 +4832,84 @@ function updateChatInputState() {
 // ============================================
 
 /**
+ * Formats an AskUserQuestion tool block into a readable question element
+ * @param {Object} block - The tool_use block with name "AskUserQuestion"
+ * @returns {HTMLElement} - A formatted question element
+ */
+function formatAskUserQuestion(block) {
+    var container = document.createElement('div');
+    container.className = 'ai-question-container';
+
+    var header = document.createElement('div');
+    header.className = 'ai-question-header';
+    header.textContent = 'Claude is asking:';
+    container.appendChild(header);
+
+    if (block.input && block.input.questions) {
+        block.input.questions.forEach(function(q, qIndex) {
+            var questionDiv = document.createElement('div');
+            questionDiv.className = 'ai-question';
+
+            // Question header/label
+            if (q.header) {
+                var labelSpan = document.createElement('span');
+                labelSpan.className = 'ai-question-label';
+                labelSpan.textContent = q.header;
+                questionDiv.appendChild(labelSpan);
+            }
+
+            // Question text
+            var questionText = document.createElement('div');
+            questionText.className = 'ai-question-text';
+            questionText.textContent = q.question;
+            questionDiv.appendChild(questionText);
+
+            // Options
+            if (q.options && q.options.length > 0) {
+                var optionsList = document.createElement('div');
+                optionsList.className = 'ai-question-options';
+
+                q.options.forEach(function(opt, optIndex) {
+                    var optionDiv = document.createElement('div');
+                    optionDiv.className = 'ai-question-option';
+
+                    // Make option clickable
+                    optionDiv.style.cursor = 'pointer';
+                    optionDiv.addEventListener('click', function() {
+                        sendQuestionResponse(opt.label);
+                    });
+
+                    var optionLabel = document.createElement('span');
+                    optionLabel.className = 'ai-option-label';
+                    optionLabel.textContent = (optIndex + 1) + '. ' + opt.label;
+                    optionDiv.appendChild(optionLabel);
+
+                    if (opt.description) {
+                        var optionDesc = document.createElement('span');
+                        optionDesc.className = 'ai-option-description';
+                        optionDesc.textContent = ' - ' + opt.description;
+                        optionDiv.appendChild(optionDesc);
+                    }
+
+                    optionsList.appendChild(optionDiv);
+                });
+
+                questionDiv.appendChild(optionsList);
+            }
+
+            container.appendChild(questionDiv);
+        });
+    }
+
+    var hint = document.createElement('div');
+    hint.className = 'ai-question-hint';
+    hint.textContent = 'Click an option above or type your answer below';
+    container.appendChild(hint);
+
+    return container;
+}
+
+/**
  * Handles streaming output from Claude subprocess via WebSocket
  * @param {Object} data - {task_id, content, type, timestamp}
  */
@@ -4870,7 +4956,44 @@ function handleAIOutput(data) {
                     if (block.type === 'text' && block.text) {
                         streamingEl.textContent += block.text;
                     } else if (block.type === 'tool_use') {
-                        streamingEl.textContent += '\n[Using tool: ' + (block.name || 'unknown') + ']\n';
+                        // Check if this is an AskUserQuestion tool
+                        if (block.name === 'AskUserQuestion') {
+                            // Create formatted question element
+                            var questionEl = formatAskUserQuestion(block);
+                            aiChatMessages.appendChild(questionEl);
+                            aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+                        } else {
+                            // Create a separate tool-use message element
+                            var toolEl = document.createElement('div');
+                            toolEl.className = 'ai-chat-message tool-use';
+
+                            // Add wrench/tool icon
+                            var iconSpan = document.createElement('span');
+                            iconSpan.className = 'tool-icon';
+                            var iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                            iconSvg.setAttribute('width', '14');
+                            iconSvg.setAttribute('height', '14');
+                            iconSvg.setAttribute('viewBox', '0 0 24 24');
+                            iconSvg.setAttribute('fill', 'none');
+                            iconSvg.setAttribute('stroke', 'currentColor');
+                            iconSvg.setAttribute('stroke-width', '2');
+                            iconSvg.setAttribute('stroke-linecap', 'round');
+                            iconSvg.setAttribute('stroke-linejoin', 'round');
+                            // Wrench icon path
+                            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            path.setAttribute('d', 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z');
+                            iconSvg.appendChild(path);
+                            iconSpan.appendChild(iconSvg);
+                            toolEl.appendChild(iconSpan);
+
+                            // Add tool name
+                            var nameSpan = document.createElement('span');
+                            nameSpan.className = 'tool-name';
+                            nameSpan.textContent = block.name || 'unknown';
+                            toolEl.appendChild(nameSpan);
+
+                            aiChatMessages.appendChild(toolEl);
+                        }
                     }
                 }
             } else if (event.type === 'result') {
@@ -4986,6 +5109,123 @@ function handleAIStopped(data) {
 }
 
 // ============================================
+// AI Queue Drag-and-Drop Reordering
+// ============================================
+
+var queueDraggedTaskId = null;
+
+function handleQueueDragStart(e) {
+    var card = e.target.closest('.ai-queue-card');
+    if (!card) return;
+
+    queueDraggedTaskId = card.dataset.taskId;
+    card.classList.add('dragging');
+
+    // Set drag data
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', queueDraggedTaskId);
+}
+
+function handleQueueDragEnd(e) {
+    var card = e.target.closest('.ai-queue-card');
+    if (card) {
+        card.classList.remove('dragging');
+    }
+    queueDraggedTaskId = null;
+
+    // Remove all drop indicators
+    document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+        el.remove();
+    });
+}
+
+function handleQueueDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    var card = e.target.closest('.ai-queue-card');
+    if (!card || card.dataset.taskId === queueDraggedTaskId) return;
+
+    // Remove existing indicators
+    document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+        el.remove();
+    });
+
+    // Calculate if we're in top or bottom half of the card
+    var rect = card.getBoundingClientRect();
+    var midY = rect.top + rect.height / 2;
+    var indicator = document.createElement('div');
+    indicator.className = 'ai-queue-drop-indicator';
+
+    if (e.clientY < midY) {
+        // Insert before
+        card.parentNode.insertBefore(indicator, card);
+    } else {
+        // Insert after
+        card.parentNode.insertBefore(indicator, card.nextSibling);
+    }
+}
+
+function handleQueueDragLeave(e) {
+    // Only remove indicator if leaving the card entirely
+    var card = e.target.closest('.ai-queue-card');
+    if (!card) return;
+
+    var relatedTarget = e.relatedTarget;
+    if (relatedTarget && card.contains(relatedTarget)) return;
+
+    // Check if moving to another card
+    var toCard = relatedTarget && relatedTarget.closest('.ai-queue-card');
+    if (!toCard || toCard === card) {
+        document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+            el.remove();
+        });
+    }
+}
+
+function handleQueueDrop(e) {
+    e.preventDefault();
+
+    var targetCard = e.target.closest('.ai-queue-card');
+    if (!targetCard || !queueDraggedTaskId) return;
+
+    var targetTaskId = targetCard.dataset.taskId;
+    if (targetTaskId === queueDraggedTaskId) return;
+
+    // Find indices in aiQueue
+    var draggedIndex = aiQueue.indexOf(queueDraggedTaskId);
+    var targetIndex = aiQueue.indexOf(targetTaskId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Determine if dropping before or after target
+    var rect = targetCard.getBoundingClientRect();
+    var midY = rect.top + rect.height / 2;
+    var insertAfter = e.clientY >= midY;
+
+    // Remove dragged item from array
+    aiQueue.splice(draggedIndex, 1);
+
+    // Recalculate target index after removal
+    var newTargetIndex = aiQueue.indexOf(targetTaskId);
+    var insertIndex = insertAfter ? newTargetIndex + 1 : newTargetIndex;
+
+    // Insert at new position
+    aiQueue.splice(insertIndex, 0, queueDraggedTaskId);
+
+    // Clean up
+    document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+        el.remove();
+    });
+
+    // Re-render the queue
+    renderAIQueue();
+    updateQueuePositionBadges();
+
+    console.log('[AI Queue] Reordered:', aiQueue);
+}
+
+// ============================================
 // AI Queue Rendering
 // ============================================
 
@@ -4995,7 +5235,12 @@ function renderAIQueue() {
         aiQueueList.removeChild(aiQueueList.firstChild);
     }
 
-    if (aiQueue.length === 0) {
+    // Count non-active tasks (tasks that will be rendered in the queue)
+    var pendingTasks = aiQueue.filter(function(taskId) {
+        return taskId !== aiActiveTaskId;
+    });
+
+    if (pendingTasks.length === 0) {
         var empty = document.createElement('div');
         empty.className = 'ai-queue-empty';
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -5017,21 +5262,77 @@ function renderAIQueue() {
         svg.appendChild(rect);
         empty.appendChild(svg);
         var p = document.createElement('p');
-        p.textContent = 'Drag tasks here to queue them for AI assistance';
+        // Show different message if active task exists
+        if (aiActiveTaskId) {
+            p.textContent = 'No pending tasks in queue';
+        } else {
+            p.textContent = 'Click + on tasks to add them to the queue';
+        }
         empty.appendChild(p);
         aiQueueList.appendChild(empty);
+        updateActiveChatHeader();
         updateChatInputState();
+        updateQueueCountBadge();
         return;
     }
 
-    aiQueue.forEach(function(taskId, index) {
+    // Filter out active task and render remaining queue items
+    var queueIndex = 0;
+    aiQueue.forEach(function(taskId) {
         var task = tasks.find(function(t) { return t.id === taskId; });
         if (!task) return;
-        var isActive = taskId === aiActiveTaskId;
-        var card = createAIQueueCard(task, index, isActive);
+
+        // Skip active task - it will be shown in the chat header
+        if (taskId === aiActiveTaskId) return;
+
+        var card = createAIQueueCard(task, queueIndex, false);
         aiQueueList.appendChild(card);
+        queueIndex++;
     });
+
+    // Update the chat header with active task info
+    updateActiveChatHeader();
     updateChatInputState();
+    updateQueueCountBadge();
+}
+
+/**
+ * Updates the chat panel header to show the active task or default state
+ */
+function updateActiveChatHeader() {
+    var headerTitle = document.getElementById('ai-chat-task-title');
+    if (!headerTitle) return;
+
+    // Clear any previous active task display
+    var existingBadge = headerTitle.parentNode.querySelector('.ai-working-badge-header');
+    if (existingBadge) existingBadge.remove();
+
+    if (!aiActiveTaskId) {
+        headerTitle.textContent = 'No Active Task';
+        headerTitle.classList.remove('has-active-task');
+        return;
+    }
+
+    // Find the active task
+    var activeTask = tasks.find(function(t) { return t.id === aiActiveTaskId; });
+    if (!activeTask) {
+        headerTitle.textContent = 'No Active Task';
+        headerTitle.classList.remove('has-active-task');
+        return;
+    }
+
+    // Display active task in header
+    headerTitle.textContent = activeTask.title;
+    headerTitle.classList.add('has-active-task');
+
+    // Add working badge with spinner
+    var badge = document.createElement('span');
+    badge.className = 'ai-working-badge ai-working-badge-header';
+    var spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    badge.appendChild(spinner);
+    badge.appendChild(document.createTextNode('Working...'));
+    headerTitle.parentNode.appendChild(badge);
 }
 
 function createAIQueueCard(task, index, isActive) {
@@ -5039,8 +5340,40 @@ function createAIQueueCard(task, index, isActive) {
     card.className = 'ai-queue-card' + (isActive ? ' active' : '');
     card.dataset.taskId = task.id;
 
+    // Make card draggable (only if not active)
+    if (!isActive) {
+        card.draggable = true;
+        card.addEventListener('dragstart', handleQueueDragStart);
+        card.addEventListener('dragend', handleQueueDragEnd);
+        card.addEventListener('dragover', handleQueueDragOver);
+        card.addEventListener('drop', handleQueueDrop);
+        card.addEventListener('dragleave', handleQueueDragLeave);
+    }
+
     var header = document.createElement('div');
     header.className = 'ai-queue-card-header';
+
+    // Add drag handle (grip icon) - only for non-active tasks
+    if (!isActive) {
+        var dragHandle = document.createElement('span');
+        dragHandle.className = 'ai-queue-drag-handle';
+        var gripSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        gripSvg.setAttribute('width', '8');
+        gripSvg.setAttribute('height', '24');
+        gripSvg.setAttribute('viewBox', '0 0 16 48');
+        gripSvg.setAttribute('fill', 'currentColor');
+        // Create 8-dot grip pattern (4 rows)
+        var positions = [[5, 8], [11, 8], [5, 18], [11, 18], [5, 30], [11, 30], [5, 40], [11, 40]];
+        positions.forEach(function(pos) {
+            var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', pos[0]);
+            circle.setAttribute('cy', pos[1]);
+            circle.setAttribute('r', '1.5');
+            gripSvg.appendChild(circle);
+        });
+        dragHandle.appendChild(gripSvg);
+        header.appendChild(dragHandle);
+    }
 
     var position = document.createElement('span');
     position.className = 'ai-queue-position';
@@ -5116,16 +5449,64 @@ function updateQueuePositionBadges() {
         var isActive = taskId === aiActiveTaskId;
         var badge = document.createElement('span');
         badge.className = 'queue-position-badge' + (isActive ? ' working' : '');
+        badge.dataset.taskId = taskId;
+
         if (isActive) {
             var spinner = document.createElement('span');
             spinner.className = 'spinner';
             badge.appendChild(spinner);
         } else {
-            badge.textContent = (index + 1).toString();
+            // Position number (shown by default)
+            var posNum = document.createElement('span');
+            posNum.className = 'position-number';
+            posNum.textContent = (index + 1).toString();
+            badge.appendChild(posNum);
+
+            // Remove icon (shown on hover)
+            var removeIcon = document.createElement('span');
+            removeIcon.className = 'remove-icon';
+            var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', '14');
+            svg.setAttribute('height', '14');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('fill', 'none');
+            svg.setAttribute('stroke', 'currentColor');
+            svg.setAttribute('stroke-width', '3');
+            svg.setAttribute('stroke-linecap', 'round');
+            var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', '5');
+            line.setAttribute('y1', '12');
+            line.setAttribute('x2', '19');
+            line.setAttribute('y2', '12');
+            svg.appendChild(line);
+            removeIcon.appendChild(svg);
+            badge.appendChild(removeIcon);
+
+            // Click to remove from queue
+            badge.addEventListener('click', function(e) {
+                e.stopPropagation();
+                removeFromAIQueue(taskId);
+            });
         }
-        card.style.position = 'relative';
+
         card.appendChild(badge);
     });
+}
+
+/**
+ * Updates the queue count badge on the toggle button
+ */
+function updateQueueCountBadge() {
+    var badge = document.getElementById('ai-queue-count-badge');
+    if (!badge) return;
+
+    var count = aiQueue.length;
+    if (count > 0) {
+        badge.textContent = count.toString();
+        badge.style.display = 'flex';
+    } else {
+        badge.style.display = 'none';
+    }
 }
 
 // Initialize AI Queue after DOM is ready

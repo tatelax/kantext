@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -49,6 +50,7 @@ type ClaudeRunner struct {
 	currentTask string
 	wsHub       *WSHub
 	workDir     string
+	onComplete  func() // Callback when task completes (for queue cleanup)
 }
 
 // NewClaudeRunner creates a new ClaudeRunner
@@ -57,6 +59,13 @@ func NewClaudeRunner(wsHub *WSHub, workDir string) *ClaudeRunner {
 		wsHub:   wsHub,
 		workDir: workDir,
 	}
+}
+
+// SetOnComplete sets the callback function to be called when a task completes
+func (r *ClaudeRunner) SetOnComplete(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onComplete = fn
 }
 
 // Start spawns the Claude CLI subprocess for a given task
@@ -79,16 +88,23 @@ func (r *ClaudeRunner) Start(ctx context.Context, taskID string, prompt string) 
 	}
 	mcpConfig := fmt.Sprintf(`{"mcpServers":{"kantext":{"command":"%s","args":["mcp","-workdir","%s"]}}}`, execPath, r.workDir)
 
-	// Build command with streaming JSON output
-	// Use script to create a PTY so Claude outputs immediately (Node.js apps need a TTY)
-	// Note: --verbose is required when using --print with --output-format stream-json
-	claudeCmd := fmt.Sprintf("claude --dangerously-skip-permissions --output-format stream-json --verbose --mcp-config '%s' --print -p '%s'",
-		mcpConfig, strings.ReplaceAll(prompt, "'", "'\\''"))
-	r.cmd = exec.CommandContext(ctx, "script", "-q", "-c", claudeCmd, "/dev/null")
+	// Build command with bidirectional streaming JSON
+	// --print is required for --input-format stream-json per Claude CLI help
+	// --input-format stream-json enables Claude to read from stdin for multi-turn conversations
+	// --output-format stream-json enables streaming output
+	// Note: Initial prompt is sent via stdin (not -p flag) to enable multi-turn conversations
+	// We don't use script/PTY wrapper to avoid rendering Claude's interactive terminal UI
+	r.cmd = exec.CommandContext(ctx, "claude",
+		"--dangerously-skip-permissions",
+		"--output-format", "stream-json",
+		"--input-format", "stream-json",
+		"--print",
+		"--verbose",
+		"--mcp-config", mcpConfig,
+	)
 	r.cmd.Dir = r.workDir
 
-	log.Printf("[ClaudeRunner] Starting Claude with command: claude --dangerously-skip-permissions --output-format stream-json --mcp-config '%s' --print -p '%s'",
-		truncateForLog(mcpConfig, 100), truncateForLog(prompt, 100))
+	log.Printf("[ClaudeRunner] Starting Claude with --print --input-format stream-json --output-format stream-json")
 	log.Printf("[ClaudeRunner] Working directory: %s", r.workDir)
 
 	// Setup pipes
@@ -132,6 +148,27 @@ func (r *ClaudeRunner) Start(ctx context.Context, taskID string, prompt string) 
 	go r.streamOutput(taskID)
 	go r.streamErrors(taskID)
 	go r.waitForExit(taskID)
+
+	// Send initial prompt via stdin as JSON (required for --input-format stream-json)
+	initialPrompt := map[string]interface{}{
+		"type": "user",
+		"message": map[string]interface{}{
+			"role": "user",
+			"content": []map[string]interface{}{
+				{"type": "text", "text": prompt},
+			},
+		},
+	}
+	jsonBytes, err := json.Marshal(initialPrompt)
+	if err != nil {
+		log.Printf("[ClaudeRunner] Warning: failed to marshal initial prompt: %v", err)
+	} else {
+		if _, err := fmt.Fprintln(r.stdin, string(jsonBytes)); err != nil {
+			log.Printf("[ClaudeRunner] Warning: failed to send initial prompt: %v", err)
+		} else {
+			log.Printf("[ClaudeRunner] Sent initial prompt via stdin")
+		}
+	}
 
 	return nil
 }
@@ -270,6 +307,14 @@ func (r *ClaudeRunner) waitForExit(taskID string) {
 			Error:  errorMsg,
 		},
 	})
+
+	// Call completion callback to clean up queue
+	r.mu.RLock()
+	onComplete := r.onComplete
+	r.mu.RUnlock()
+	if onComplete != nil {
+		onComplete()
+	}
 }
 
 // Stop terminates the Claude subprocess gracefully
@@ -321,7 +366,8 @@ func (r *ClaudeRunner) Stop() error {
 	return nil
 }
 
-// SendInput writes input to the Claude subprocess stdin
+// SendInput writes input to the Claude subprocess stdin as JSON
+// With --input-format stream-json, all input must be properly formatted
 func (r *ClaudeRunner) SendInput(input string) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -334,7 +380,23 @@ func (r *ClaudeRunner) SendInput(input string) error {
 		return fmt.Errorf("stdin pipe not available")
 	}
 
-	_, err := fmt.Fprintln(r.stdin, input)
+	// Format as stream-json user message
+	message := map[string]interface{}{
+		"type": "user",
+		"message": map[string]interface{}{
+			"role": "user",
+			"content": []map[string]interface{}{
+				{"type": "text", "text": input},
+			},
+		},
+	}
+	jsonBytes, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal input: %w", err)
+	}
+
+	log.Printf("[ClaudeRunner] Sending user input: %s", truncateForLog(input, 100))
+	_, err = fmt.Fprintln(r.stdin, string(jsonBytes))
 	if err != nil {
 		return fmt.Errorf("failed to write to stdin: %w", err)
 	}

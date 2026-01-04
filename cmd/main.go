@@ -72,6 +72,14 @@ func main() {
 	testRunner := services.NewTestRunnerWithStore(taskStore)
 	claudeRunner := services.NewClaudeRunner(wsHub, workDir)
 
+	// When Claude finishes a task, clean up the queue
+	claudeRunner.SetOnComplete(func() {
+		log.Println("Claude completed task, cleaning up queue...")
+		if err := taskStore.StopCurrentTask(); err != nil {
+			log.Printf("Error cleaning up queue on task completion: %v", err)
+		}
+	})
+
 	// Initialize file watcher for real-time updates
 	fileWatcher, err := services.NewFileWatcher(tasksFile, wsHub)
 	if err != nil {
