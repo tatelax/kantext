@@ -4457,6 +4457,16 @@ function initAIQueue() {
         });
     }
 
+    // Header action buttons
+    var requeueBtn = document.getElementById('ai-requeue-btn');
+    var completeBtn = document.getElementById('ai-complete-btn');
+    if (requeueBtn) {
+        requeueBtn.addEventListener('click', requeueCurrentTask);
+    }
+    if (completeBtn) {
+        completeBtn.addEventListener('click', completeCurrentTask);
+    }
+
     initAIQueueResize();
     loadAIQueue();
 }
@@ -4581,6 +4591,7 @@ async function loadAIQueue() {
             aiActiveTaskId = data.active_task_id || null;
             renderAIQueue();
             updateQueuePositionBadges();
+            updateQueueCountBadge();
             if (aiActiveTaskId) {
                 loadAISession();
             }
@@ -4825,6 +4836,169 @@ function updateChatInputState() {
             aiChatTaskTitle.textContent = 'No Active Task';
         }
     }
+
+    // Show/hide header action buttons
+    var headerActions = document.getElementById('ai-chat-header-actions');
+    if (headerActions) {
+        headerActions.style.display = hasActiveTask ? 'flex' : 'none';
+    }
+}
+
+/**
+ * Sets a button to loading state with a spinner
+ * @param {HTMLElement} btn - The button element
+ * @param {string} text - The loading text to display
+ */
+function setButtonLoading(btn, text) {
+    btn.disabled = true;
+    while (btn.firstChild) {
+        btn.removeChild(btn.firstChild);
+    }
+    var spinner = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    spinner.setAttribute('class', 'animate-spin');
+    spinner.setAttribute('width', '14');
+    spinner.setAttribute('height', '14');
+    spinner.setAttribute('viewBox', '0 0 24 24');
+    spinner.setAttribute('fill', 'none');
+    spinner.setAttribute('stroke', 'currentColor');
+    spinner.setAttribute('stroke-width', '2');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M21 12a9 9 0 1 1-6.219-8.56');
+    spinner.appendChild(path);
+    btn.appendChild(spinner);
+    btn.appendChild(document.createTextNode(' ' + text));
+}
+
+/**
+ * Restores a button to its original state
+ * @param {HTMLElement} btn - The button element
+ * @param {Node[]} originalChildren - Array of original child nodes
+ */
+function restoreButton(btn, originalChildren) {
+    btn.disabled = false;
+    while (btn.firstChild) {
+        btn.removeChild(btn.firstChild);
+    }
+    originalChildren.forEach(function(child) {
+        btn.appendChild(child);
+    });
+}
+
+/**
+ * Moves the current active task back to the queue at position 0 (front)
+ */
+async function requeueCurrentTask() {
+    if (!aiActiveTaskId) return;
+    var taskId = aiActiveTaskId;
+
+    var btn = document.getElementById('ai-requeue-btn');
+    var originalChildren = btn ? Array.from(btn.childNodes).map(function(n) { return n.cloneNode(true); }) : [];
+
+    try {
+        // Show loading state
+        if (btn) {
+            setButtonLoading(btn, 'Stopping...');
+        }
+
+        // Stop Claude if it's running
+        await fetch(API_BASE + '/ai-queue/stop', { method: 'POST' });
+
+        // Move task back to inbox column
+        var moveResponse = await fetch(API_BASE + '/tasks/' + taskId + '/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ column: 'inbox', position: 0 })
+        });
+
+        if (!moveResponse.ok) {
+            var error = await moveResponse.json();
+            showNotification(error.error || 'Failed to move task to inbox', 'error');
+            return;
+        }
+
+        // Add back to AI queue at position 0 (front of queue)
+        var response = await fetch(API_BASE + '/ai-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId, position: 0 })
+        });
+
+        if (!response.ok) {
+            var error = await response.json();
+            showNotification(error.error || 'Failed to requeue task', 'error');
+            return;
+        }
+
+        // Clear current state after successful requeue
+        aiActiveTaskId = null;
+        aiSession = null;
+
+        // Clear chat and update UI
+        renderAIChatMessages();
+        updateChatInputState();
+        await loadAIQueue();
+        loadTasks(); // Refresh board to show task back in inbox
+        showNotification('Task moved back to queue', 'success');
+    } catch (error) {
+        console.error('Failed to requeue task:', error);
+        showNotification('Failed to requeue task', 'error');
+    } finally {
+        // Restore button state
+        if (btn) {
+            restoreButton(btn, originalChildren);
+        }
+    }
+}
+
+/**
+ * Moves the current active task to the Done column and clears chat
+ */
+async function completeCurrentTask() {
+    if (!aiActiveTaskId) return;
+    var taskId = aiActiveTaskId;
+
+    var btn = document.getElementById('ai-complete-btn');
+    var originalChildren = btn ? Array.from(btn.childNodes).map(function(n) { return n.cloneNode(true); }) : [];
+
+    try {
+        // Show loading state
+        if (btn) {
+            setButtonLoading(btn, 'Stopping...');
+        }
+
+        // Stop Claude if it's running
+        await fetch(API_BASE + '/ai-queue/stop', { method: 'POST' });
+
+        // Move task to Done column
+        var response = await fetch(API_BASE + '/tasks/' + taskId + '/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ column: 'done', position: 0 })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to move task');
+        }
+
+        // Clear current state
+        aiActiveTaskId = null;
+        aiSession = null;
+
+        // Clear chat and update UI
+        renderAIChatMessages();
+        updateChatInputState();
+        renderAIQueue();
+        loadTasks(); // Refresh board to show task in Done column
+        showNotification('Task completed', 'success');
+    } catch (error) {
+        console.error('Failed to complete task:', error);
+        showNotification('Failed to complete task', 'error');
+    } finally {
+        // Restore button state
+        if (btn) {
+            restoreButton(btn, originalChildren);
+        }
+    }
 }
 
 // ============================================
@@ -4933,6 +5107,10 @@ function handleAIOutput(data) {
     if (!streamingEl) {
         streamingEl = document.createElement('div');
         streamingEl.className = 'ai-chat-message assistant ai-streaming-message';
+        // Add loading spinner until text content arrives
+        var spinner = document.createElement('span');
+        spinner.className = 'chat-loading-spinner';
+        streamingEl.appendChild(spinner);
         aiChatMessages.appendChild(streamingEl);
     }
 
@@ -4954,6 +5132,11 @@ function handleAIOutput(data) {
                 for (var i = 0; i < contentBlocks.length; i++) {
                     var block = contentBlocks[i];
                     if (block.type === 'text' && block.text) {
+                        // Remove loading spinner if present
+                        var loadingSpinner = streamingEl.querySelector('.chat-loading-spinner');
+                        if (loadingSpinner) {
+                            loadingSpinner.remove();
+                        }
                         streamingEl.textContent += block.text;
                     } else if (block.type === 'tool_use') {
                         // Check if this is an AskUserQuestion tool
@@ -4997,9 +5180,13 @@ function handleAIOutput(data) {
                     }
                 }
             } else if (event.type === 'result') {
-                // Message complete, finalize the streaming element
-                streamingEl.classList.remove('ai-streaming-message');
-                streamingEl = null;
+                // Message/turn complete, finalize the streaming element
+                // Note: This fires after each turn, not just at the end
+                // Claude may still be waiting for user input (e.g., AskUserQuestion)
+                if (streamingEl) {
+                    streamingEl.classList.remove('ai-streaming-message');
+                    streamingEl = null;
+                }
             }
             // Ignore "system" and "user" event types
         } catch (e) {
@@ -5303,10 +5490,6 @@ function updateActiveChatHeader() {
     var headerTitle = document.getElementById('ai-chat-task-title');
     if (!headerTitle) return;
 
-    // Clear any previous active task display
-    var existingBadge = headerTitle.parentNode.querySelector('.ai-working-badge-header');
-    if (existingBadge) existingBadge.remove();
-
     if (!aiActiveTaskId) {
         headerTitle.textContent = 'No Active Task';
         headerTitle.classList.remove('has-active-task');
@@ -5324,15 +5507,6 @@ function updateActiveChatHeader() {
     // Display active task in header
     headerTitle.textContent = activeTask.title;
     headerTitle.classList.add('has-active-task');
-
-    // Add working badge with spinner
-    var badge = document.createElement('span');
-    badge.className = 'ai-working-badge ai-working-badge-header';
-    var spinner = document.createElement('span');
-    spinner.className = 'spinner';
-    badge.appendChild(spinner);
-    badge.appendChild(document.createTextNode('Working...'));
-    headerTitle.parentNode.appendChild(badge);
 }
 
 function createAIQueueCard(task, index, isActive) {
