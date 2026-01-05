@@ -159,3 +159,40 @@ func ParsePriority(s string, defaultPriority Priority) Priority {
 		return defaultPriority
 	}
 }
+
+// AIQueueState holds the current AI task queue state
+type AIQueueState struct {
+	ActiveTaskID string   `json:"active_task_id"` // ID of task currently being worked on (empty = none)
+	TaskIDs      []string `json:"task_ids"`       // Ordered list of task IDs in queue
+}
+
+// ChatMessage represents a message in the LLM conversation
+type ChatMessage struct {
+	Role      string    `json:"role"`      // "user", "assistant", "system"
+	Content   string    `json:"content"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// AISession holds the current AI conversation state
+type AISession struct {
+	TaskID   string        `json:"task_id"`
+	Messages []ChatMessage `json:"messages"`
+	Started  time.Time     `json:"started"`
+}
+
+// AddToQueueRequest is the request body for adding a task to the AI queue
+type AddToQueueRequest struct {
+	TaskID   string `json:"task_id"`
+	Position int    `json:"position"` // -1 for end of queue
+}
+
+// ReorderQueueRequest is the request body for reordering the AI queue
+type ReorderQueueRequest struct {
+	TaskIDs []string `json:"task_ids"`
+}
+
+// SendMessageRequest is the request body for sending a chat message
+type SendMessageRequest struct {
+	Message string `json:"message"`
+	Mode    string `json:"mode,omitempty"` // "plan" or empty (default: accept edits)
+}

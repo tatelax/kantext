@@ -1729,6 +1729,22 @@ function handleWebSocketMessage(msg) {
                 handleRemoteTaskMove(msg.task_id, msg.column);
             }
             break;
+        case 'ai_output':
+            // Claude output streaming
+            handleAIOutput(msg.data);
+            break;
+        case 'ai_started':
+            // Claude process started
+            handleAIStarted(msg.data);
+            break;
+        case 'ai_stopped':
+            // Claude process stopped
+            handleAIStopped(msg.data);
+            break;
+        case 'ai_queue_updated':
+            // AI queue state changed
+            loadAIQueue();
+            break;
         default:
             console.log('Unknown message type:', msg.type);
     }
@@ -1984,6 +2000,9 @@ async function loadTasks() {
         if (!tasksEqual(tasks, newTasks)) {
             tasks = newTasks;
             renderTasks();
+            // Re-render AI queue since it depends on tasks array
+            renderAIQueue();
+            updateQueuePositionBadges();
         }
 
         updatePanelStaleBadge();
@@ -2503,9 +2522,9 @@ function updateTaskCard(card, task) {
         }
     } else {
         // Remove play button since no test is configured
-        const actionsContainer = card.querySelector('.task-actions');
-        if (actionsContainer) {
-            actionsContainer.remove();
+        const playBtn = card.querySelector('.play-btn');
+        if (playBtn) {
+            playBtn.remove();
         }
     }
 }
@@ -2807,12 +2826,18 @@ function createTaskCard(task) {
     card.draggable = true;
     card.dataset.id = task.id;
 
-    // Build actions HTML - only include play button if task has a test configured
+    // Build actions HTML - play button only if test configured
     const actionsHtml = hasTest
-        ? `<div class="task-actions">
-               <button class="play-btn" title="Run Test">&#9658;</button>
-           </div>`
+        ? `<div class="task-actions"><button class="play-btn" title="Run Test">&#9658;</button></div>`
         : '';
+
+    // Floating queue button - appears on card hover
+    const floatingQueueBtn = `<button class="floating-queue-btn" title="Add to Queue">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+    </button>`;
 
     // Build meta HTML - show author, date, and optionally test info with icons
     let metaHtml = '';
@@ -2889,6 +2914,7 @@ function createTaskCard(task) {
         </div>
         ${metaHtml}
         ${tagsHtml}
+        ${floatingQueueBtn}
     `;
 
     // Event listeners
@@ -2902,6 +2928,13 @@ function createTaskCard(task) {
             handleRunTest(task.id, playBtn);
         });
     }
+
+    // Floating queue button listener
+    const floatingBtn = card.querySelector('.floating-queue-btn');
+    floatingBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addToAIQueue(task.id, -1);
+    });
 
     // Title click to copy task ID
     titleEl.addEventListener('click', async (e) => {
@@ -2920,9 +2953,10 @@ function createTaskCard(task) {
 
     // Click on card (not title) to open task panel
     card.addEventListener('click', async (e) => {
-        // Only open panel if click wasn't on title or action buttons
+        // Only open panel if click wasn't on title, action buttons, or floating queue button
         if (!e.target.classList.contains('task-title-clickable') &&
-            !e.target.closest('.task-actions')) {
+            !e.target.closest('.task-actions') &&
+            !e.target.closest('.floating-queue-btn')) {
             // Check for unsaved changes before switching tasks
             if (taskPanel?.classList.contains('open') && currentPanelTask?.id !== task.id) {
                 const canClose = await tryCloseTaskPanel();
@@ -3817,6 +3851,21 @@ function initTaskPanel() {
         }
     });
 
+    // Shift+Tab to toggle AI task mode (plan/accept edits)
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab' && e.shiftKey && aiSidebarOpen && aiActiveTaskId) {
+            // Don't trigger if typing in an input, textarea, or contenteditable
+            const target = e.target;
+            const isEditing = target.tagName === 'INPUT' ||
+                              target.tagName === 'TEXTAREA' ||
+                              target.isContentEditable;
+            if (isEditing) return;
+
+            e.preventDefault();
+            toggleActiveTaskMode();
+        }
+    });
+
     // Click outside panel to close it
     document.addEventListener('click', async (e) => {
         if (!taskPanel?.classList.contains('open')) return;
@@ -4365,3 +4414,1490 @@ function initPanelResize() {
     // Touch events for mobile
     resizeHandle.addEventListener('touchstart', startResize, { passive: false });
 }
+
+// ============================================
+// AI Queue State & Elements
+// ============================================
+
+let aiQueue = [];           // Array of task IDs in queue
+let aiActiveTaskId = null;  // Currently active task ID
+let aiSession = null;       // Current AI session state
+let aiSidebarOpen = false;
+let streamingRawText = '';  // Accumulates raw text for markdown re-rendering
+
+// Task mode state (per-task: 'plan' or 'accept')
+let aiTaskModes = {};       // Map of taskId -> mode
+const AI_TASK_MODES_STORAGE_KEY = 'kantext-ai-task-modes';
+const MODE_PLAN = 'plan';
+const MODE_ACCEPT = 'accept';
+
+// Configure marked for safe markdown rendering
+if (typeof marked !== 'undefined') {
+    marked.setOptions({
+        breaks: true,      // Convert \n to <br>
+        gfm: true,         // GitHub Flavored Markdown
+        headerIds: false,  // Don't add IDs to headers
+        mangle: false      // Don't mangle email addresses
+    });
+}
+
+/**
+ * Renders markdown content safely
+ * @param {string} text - Raw markdown text
+ * @returns {string} - HTML string
+ */
+function renderMarkdown(text) {
+    if (typeof marked === 'undefined' || !text) {
+        return escapeHtml(text || '');
+    }
+    try {
+        return marked.parse(text);
+    } catch (e) {
+        console.error('Markdown parse error:', e);
+        return escapeHtml(text);
+    }
+}
+
+/**
+ * Escapes HTML entities for safe display
+ * @param {string} text - Raw text
+ * @returns {string} - Escaped HTML
+ */
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+const aiQueueToggleBtn = document.getElementById('ai-queue-toggle-btn');
+const aiQueueSidebar = document.getElementById('ai-queue-sidebar');
+const aiQueueOverlay = document.getElementById('ai-queue-overlay');
+const aiQueueList = document.getElementById('ai-queue-list');
+const aiQueueCloseBtn = document.getElementById('ai-queue-close-btn');
+const aiStartBtn = document.getElementById('ai-start-btn');
+const aiChatMessages = document.getElementById('ai-chat-messages');
+const aiChatInput = document.getElementById('ai-chat-input');
+const aiSendBtn = document.getElementById('ai-send-btn');
+const aiChatTaskTitle = document.getElementById('ai-chat-task-title');
+const aiModeToggleBtn = document.getElementById('ai-mode-toggle-btn');
+const aiModeIconPlan = document.getElementById('ai-mode-icon-plan');
+const aiModeIconAccept = document.getElementById('ai-mode-icon-accept');
+const aiModeLabel = document.getElementById('ai-mode-label');
+
+// ============================================
+// AI Queue Initialization
+// ============================================
+
+function initAIQueue() {
+    if (aiQueueToggleBtn) {
+        aiQueueToggleBtn.addEventListener('click', toggleAIQueueSidebar);
+    }
+    if (aiQueueCloseBtn) {
+        aiQueueCloseBtn.addEventListener('click', closeAIQueueSidebar);
+    }
+    if (aiQueueOverlay) {
+        aiQueueOverlay.addEventListener('click', closeAIQueueSidebar);
+    }
+    if (aiStartBtn) {
+        aiStartBtn.addEventListener('click', handleStartAITask);
+    }
+    if (aiSendBtn) {
+        aiSendBtn.addEventListener('click', handleSendAIMessage);
+    }
+    if (aiChatInput) {
+        aiChatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendAIMessage();
+            }
+        });
+        aiChatInput.addEventListener('input', () => {
+            aiChatInput.style.height = 'auto';
+            aiChatInput.style.height = Math.min(aiChatInput.scrollHeight, 120) + 'px';
+        });
+    }
+
+    // Header action buttons
+    var requeueBtn = document.getElementById('ai-requeue-btn');
+    var completeBtn = document.getElementById('ai-complete-btn');
+    if (requeueBtn) {
+        requeueBtn.addEventListener('click', requeueCurrentTask);
+    }
+    if (completeBtn) {
+        completeBtn.addEventListener('click', completeCurrentTask);
+    }
+
+    // Mode toggle button
+    if (aiModeToggleBtn) {
+        aiModeToggleBtn.addEventListener('click', toggleActiveTaskMode);
+    }
+
+    // Load persisted task modes
+    loadTaskModes();
+
+    initAIQueueResize();
+    loadAIQueue();
+}
+
+// ============================================
+// AI Queue Sidebar Toggle
+// ============================================
+
+function toggleAIQueueSidebar() {
+    if (aiSidebarOpen) {
+        closeAIQueueSidebar();
+    } else {
+        openAIQueueSidebar();
+    }
+}
+
+function openAIQueueSidebar() {
+    if (!aiQueueSidebar) return;
+    aiQueueSidebar.classList.add('open');
+    if (aiQueueOverlay) aiQueueOverlay.classList.add('visible');
+    document.body.classList.add('ai-queue-open');
+    aiSidebarOpen = true;
+    if (taskPanel && taskPanel.classList.contains('open')) {
+        closeTaskPanel();
+    }
+}
+
+function closeAIQueueSidebar() {
+    if (!aiQueueSidebar) return;
+    aiQueueSidebar.classList.remove('open');
+    if (aiQueueOverlay) aiQueueOverlay.classList.remove('visible');
+    document.body.classList.remove('ai-queue-open');
+    aiSidebarOpen = false;
+}
+
+// ============================================
+// AI Task Mode Management
+// ============================================
+
+/**
+ * Load task modes from localStorage
+ */
+function loadTaskModes() {
+    try {
+        var saved = localStorage.getItem(AI_TASK_MODES_STORAGE_KEY);
+        if (saved) {
+            aiTaskModes = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.warn('Failed to load task modes from localStorage:', e);
+        aiTaskModes = {};
+    }
+}
+
+/**
+ * Save task modes to localStorage
+ */
+function saveTaskModes() {
+    try {
+        localStorage.setItem(AI_TASK_MODES_STORAGE_KEY, JSON.stringify(aiTaskModes));
+    } catch (e) {
+        console.warn('Failed to save task modes to localStorage:', e);
+    }
+}
+
+/**
+ * Get mode for a task (defaults to 'accept')
+ * @param {string} taskId
+ * @returns {string} 'plan' or 'accept'
+ */
+function getTaskMode(taskId) {
+    return aiTaskModes[taskId] || MODE_ACCEPT;
+}
+
+/**
+ * Set mode for a task
+ * @param {string} taskId
+ * @param {string} mode - 'plan' or 'accept'
+ */
+function setTaskMode(taskId, mode) {
+    aiTaskModes[taskId] = mode;
+    saveTaskModes();
+    updateModeToggleUI();
+}
+
+/**
+ * Toggle mode for the active task
+ */
+function toggleActiveTaskMode() {
+    if (!aiActiveTaskId) return;
+    var currentMode = getTaskMode(aiActiveTaskId);
+    var newMode = currentMode === MODE_PLAN ? MODE_ACCEPT : MODE_PLAN;
+    setTaskMode(aiActiveTaskId, newMode);
+    showNotification(newMode === MODE_PLAN ? 'Plan Mode enabled' : 'Accept Edits enabled', 'info');
+}
+
+/**
+ * Updates the mode toggle button UI based on the active task's mode
+ */
+function updateModeToggleUI() {
+    if (!aiModeToggleBtn) return;
+
+    if (!aiActiveTaskId) {
+        aiModeToggleBtn.style.display = 'none';
+        return;
+    }
+
+    aiModeToggleBtn.style.display = 'inline-flex';
+    var mode = getTaskMode(aiActiveTaskId);
+
+    if (mode === MODE_PLAN) {
+        aiModeToggleBtn.classList.remove('mode-accept');
+        aiModeToggleBtn.classList.add('mode-plan');
+        if (aiModeIconPlan) aiModeIconPlan.style.display = 'block';
+        if (aiModeIconAccept) aiModeIconAccept.style.display = 'none';
+        if (aiModeLabel) aiModeLabel.textContent = 'plan mode';
+        aiModeToggleBtn.title = 'Plan Mode ON - Click to enable Accept Edits (Shift+Tab)';
+    } else {
+        aiModeToggleBtn.classList.remove('mode-plan');
+        aiModeToggleBtn.classList.add('mode-accept');
+        if (aiModeIconPlan) aiModeIconPlan.style.display = 'none';
+        if (aiModeIconAccept) aiModeIconAccept.style.display = 'block';
+        if (aiModeLabel) aiModeLabel.textContent = 'accept edits';
+        aiModeToggleBtn.title = 'Accept Edits ON - Click to enable Plan Mode (Shift+Tab)';
+    }
+}
+
+// ============================================
+// AI Queue Resize
+// ============================================
+
+function initAIQueueResize() {
+    const resizeHandle = document.getElementById('ai-queue-resize-handle');
+    if (!resizeHandle || !aiQueueSidebar) return;
+
+    const SIDEBAR_MIN_WIDTH = 500;
+    const SIDEBAR_MAX_WIDTH_RATIO = 0.85;
+    const SIDEBAR_WIDTH_STORAGE_KEY = 'kantext-ai-queue-width';
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    // Helper to sync CSS variable for main content margin
+    function syncMainMargin(width) {
+        document.documentElement.style.setProperty('--ai-sidebar-width', width + 'px');
+    }
+
+    const savedWidth = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    if (savedWidth) {
+        const width = parseInt(savedWidth, 10);
+        if (width >= SIDEBAR_MIN_WIDTH) {
+            aiQueueSidebar.style.width = width + 'px';
+            syncMainMargin(width);
+        }
+    } else {
+        // Set default width
+        syncMainMargin(700);
+    }
+
+    function startResize(e) {
+        e.preventDefault();
+        isResizing = true;
+        startX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        startWidth = aiQueueSidebar.offsetWidth;
+        resizeHandle.classList.add('resizing');
+        document.body.classList.add('resizing-panel');
+        document.addEventListener('mousemove', resize);
+        document.addEventListener('mouseup', stopResize);
+        document.addEventListener('touchmove', resize, { passive: false });
+        document.addEventListener('touchend', stopResize);
+    }
+
+    function resize(e) {
+        if (!isResizing) return;
+        e.preventDefault();
+        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const deltaX = clientX - startX;
+        const newWidth = startWidth + deltaX;
+        const maxWidth = window.innerWidth * SIDEBAR_MAX_WIDTH_RATIO;
+        const clampedWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(maxWidth, newWidth));
+        aiQueueSidebar.style.width = clampedWidth + 'px';
+        syncMainMargin(clampedWidth);
+    }
+
+    function stopResize() {
+        if (!isResizing) return;
+        isResizing = false;
+        resizeHandle.classList.remove('resizing');
+        document.body.classList.remove('resizing-panel');
+        document.removeEventListener('mousemove', resize);
+        document.removeEventListener('mouseup', stopResize);
+        document.removeEventListener('touchmove', resize);
+        document.removeEventListener('touchend', stopResize);
+        const finalWidth = aiQueueSidebar.offsetWidth;
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, finalWidth.toString());
+        syncMainMargin(finalWidth);
+    }
+
+    resizeHandle.addEventListener('mousedown', startResize);
+    resizeHandle.addEventListener('touchstart', startResize, { passive: false });
+}
+
+// ============================================
+// AI Queue API Calls
+// ============================================
+
+async function loadAIQueue() {
+    try {
+        const response = await fetch(API_BASE + '/ai-queue');
+        if (response.ok) {
+            const data = await response.json();
+            aiQueue = data.task_ids || [];
+            aiActiveTaskId = data.active_task_id || null;
+            renderAIQueue();
+            updateQueuePositionBadges();
+            updateQueueCountBadge();
+            if (aiActiveTaskId) {
+                loadAISession();
+            }
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to load queue:', error);
+    }
+}
+
+async function addToAIQueue(taskId, position) {
+    try {
+        const response = await fetch(API_BASE + '/ai-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId, position: position })
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            showNotification('Task added to AI queue', 'success');
+            if (!aiSidebarOpen) {
+                openAIQueueSidebar();
+            }
+        } else {
+            const error = await response.json();
+            showNotification(error.error || 'Failed to add task', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to add to queue:', error);
+        showNotification('Failed to add task to queue', 'error');
+    }
+}
+
+async function removeFromAIQueue(taskId) {
+    if (taskId === aiActiveTaskId) {
+        showNotification('Stop the task before removing', 'warning');
+        return;
+    }
+    try {
+        const response = await fetch(API_BASE + '/ai-queue/' + taskId, {
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            showNotification('Task removed from queue', 'success');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to remove from queue:', error);
+    }
+}
+
+async function handleStartAITask() {
+    if (aiQueue.length === 0) return;
+    try {
+        const response = await fetch(API_BASE + '/ai-queue/start', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            await loadAISession();
+            showNotification('Started working on task', 'success');
+        } else {
+            const error = await response.json();
+            showNotification(error.error || 'Failed to start task', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to start task:', error);
+        showNotification('Failed to start task', 'error');
+    }
+}
+
+async function handleStopAITask() {
+    try {
+        const response = await fetch(API_BASE + '/ai-queue/stop', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            await loadAIQueue();
+            aiSession = null;
+            renderAIChatMessages();
+            updateChatInputState();
+            showNotification('Stopped working on task', 'success');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to stop task:', error);
+    }
+}
+
+// ============================================
+// AI Chat
+// ============================================
+
+async function loadAISession() {
+    try {
+        const response = await fetch(API_BASE + '/ai-session');
+        if (response.ok) {
+            aiSession = await response.json();
+            renderAIChatMessages();
+            updateChatInputState();
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to load session:', error);
+    }
+}
+
+async function handleSendAIMessage() {
+    const message = aiChatInput.value.trim();
+    if (!message || !aiActiveTaskId) return;
+
+    aiChatInput.value = '';
+    aiChatInput.style.height = 'auto';
+    aiChatInput.disabled = true;
+    aiSendBtn.disabled = true;
+
+    appendChatMessage({ role: 'user', content: message, timestamp: new Date().toISOString() });
+
+    // Get the current task mode and prepare request body
+    const mode = getTaskMode(aiActiveTaskId);
+    const requestBody = { message: message };
+    if (mode === MODE_PLAN) {
+        requestBody.mode = 'plan';
+    }
+
+    try {
+        const response = await fetch(API_BASE + '/ai-session/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.response) {
+                appendChatMessage(data.response);
+            }
+        } else {
+            showNotification('Failed to send message', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to send message:', error);
+        showNotification('Failed to send message', 'error');
+    } finally {
+        aiChatInput.disabled = false;
+        aiSendBtn.disabled = false;
+        aiChatInput.focus();
+    }
+}
+
+/**
+ * Sends a quick response when user clicks an option
+ * @param {string} response - The option label to send
+ */
+async function sendQuestionResponse(response) {
+    if (!aiActiveTaskId) return;
+
+    // Show the user's selection in chat
+    appendChatMessage({ role: 'user', content: response, timestamp: new Date().toISOString() });
+
+    // Get the current task mode and prepare request body
+    const mode = getTaskMode(aiActiveTaskId);
+    const requestBody = { message: response };
+    if (mode === MODE_PLAN) {
+        requestBody.mode = 'plan';
+    }
+
+    try {
+        const result = await fetch(API_BASE + '/ai-session/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        if (!result.ok) {
+            showNotification('Failed to send response', 'error');
+        }
+    } catch (error) {
+        console.error('[AI Queue] Failed to send response:', error);
+        showNotification('Failed to send response', 'error');
+    }
+}
+
+function appendChatMessage(message) {
+    if (!aiChatMessages) return;
+    var placeholder = aiChatMessages.querySelector('.ai-chat-placeholder');
+    if (placeholder) {
+        placeholder.remove();
+    }
+    var msgDiv = document.createElement('div');
+    msgDiv.className = 'ai-chat-message ' + message.role;
+    msgDiv.textContent = message.content;
+    aiChatMessages.appendChild(msgDiv);
+    aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+}
+
+function renderAIChatMessages() {
+    if (!aiChatMessages) return;
+
+    // Don't clear chat if we're actively streaming (indicator present)
+    // This prevents other code paths from destroying active streaming state
+    var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
+    if (indicator) {
+        return;
+    }
+
+    while (aiChatMessages.firstChild) {
+        aiChatMessages.removeChild(aiChatMessages.firstChild);
+    }
+
+    if (!aiSession || !aiSession.messages || aiSession.messages.length === 0) {
+        var placeholder = document.createElement('div');
+        placeholder.className = 'ai-chat-placeholder';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '48');
+        svg.setAttribute('height', '48');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1');
+        var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
+        svg.appendChild(path);
+        placeholder.appendChild(svg);
+        var p = document.createElement('p');
+        p.textContent = aiActiveTaskId ? 'Send a message to start' : 'Start a task to begin chatting with AI';
+        placeholder.appendChild(p);
+        aiChatMessages.appendChild(placeholder);
+        return;
+    }
+
+    aiSession.messages.forEach(function(msg) {
+        var msgDiv = document.createElement('div');
+        msgDiv.className = 'ai-chat-message ' + msg.role;
+        if (msg.role === 'assistant') {
+            msgDiv.classList.add('markdown-content');
+            msgDiv.innerHTML = renderMarkdown(msg.content);
+        } else {
+            msgDiv.textContent = msg.content;
+        }
+        aiChatMessages.appendChild(msgDiv);
+    });
+    aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+}
+
+function updateChatInputState() {
+    var hasActiveTask = !!aiActiveTaskId;
+    if (aiChatInput) {
+        aiChatInput.disabled = !hasActiveTask;
+        aiChatInput.placeholder = hasActiveTask ? 'Send a message...' : 'Start a task first...';
+    }
+    if (aiSendBtn) {
+        aiSendBtn.disabled = !hasActiveTask;
+    }
+    if (aiStartBtn) {
+        aiStartBtn.disabled = aiQueue.length === 0 || hasActiveTask;
+    }
+    if (aiChatTaskTitle) {
+        if (hasActiveTask) {
+            var task = tasks.find(function(t) { return t.id === aiActiveTaskId; });
+            aiChatTaskTitle.textContent = task ? task.title : 'Working...';
+        } else {
+            aiChatTaskTitle.textContent = 'No Active Task';
+        }
+    }
+
+    // Show/hide header action buttons
+    var headerActions = document.getElementById('ai-chat-header-actions');
+    if (headerActions) {
+        headerActions.style.display = hasActiveTask ? 'flex' : 'none';
+    }
+
+    // Update mode toggle button
+    updateModeToggleUI();
+}
+
+/**
+ * Sets a button to loading state with a spinner
+ * @param {HTMLElement} btn - The button element
+ * @param {string} text - The loading text to display
+ */
+function setButtonLoading(btn, text) {
+    btn.disabled = true;
+    while (btn.firstChild) {
+        btn.removeChild(btn.firstChild);
+    }
+    var spinner = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    spinner.setAttribute('class', 'animate-spin');
+    spinner.setAttribute('width', '14');
+    spinner.setAttribute('height', '14');
+    spinner.setAttribute('viewBox', '0 0 24 24');
+    spinner.setAttribute('fill', 'none');
+    spinner.setAttribute('stroke', 'currentColor');
+    spinner.setAttribute('stroke-width', '2');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M21 12a9 9 0 1 1-6.219-8.56');
+    spinner.appendChild(path);
+    btn.appendChild(spinner);
+    btn.appendChild(document.createTextNode(' ' + text));
+}
+
+/**
+ * Restores a button to its original state
+ * @param {HTMLElement} btn - The button element
+ * @param {Node[]} originalChildren - Array of original child nodes
+ */
+function restoreButton(btn, originalChildren) {
+    btn.disabled = false;
+    while (btn.firstChild) {
+        btn.removeChild(btn.firstChild);
+    }
+    originalChildren.forEach(function(child) {
+        btn.appendChild(child);
+    });
+}
+
+/**
+ * Moves the current active task back to the queue at position 0 (front)
+ */
+async function requeueCurrentTask() {
+    if (!aiActiveTaskId) return;
+    var taskId = aiActiveTaskId;
+
+    var btn = document.getElementById('ai-requeue-btn');
+    var originalChildren = btn ? Array.from(btn.childNodes).map(function(n) { return n.cloneNode(true); }) : [];
+
+    try {
+        // Show loading state
+        if (btn) {
+            setButtonLoading(btn, 'Stopping...');
+        }
+
+        // Stop Claude if it's running
+        await fetch(API_BASE + '/ai-queue/stop', { method: 'POST' });
+
+        // Move task back to inbox column
+        var moveResponse = await fetch(API_BASE + '/tasks/' + taskId + '/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ column: 'inbox', position: 0 })
+        });
+
+        if (!moveResponse.ok) {
+            var error = await moveResponse.json();
+            showNotification(error.error || 'Failed to move task to inbox', 'error');
+            return;
+        }
+
+        // Add back to AI queue at position 0 (front of queue)
+        var response = await fetch(API_BASE + '/ai-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId, position: 0 })
+        });
+
+        if (!response.ok) {
+            var error = await response.json();
+            showNotification(error.error || 'Failed to requeue task', 'error');
+            return;
+        }
+
+        // Clear current state after successful requeue
+        aiActiveTaskId = null;
+        aiSession = null;
+        streamingRawText = '';
+
+        // Remove streaming indicator if present (allows renderAIChatMessages to clear)
+        var indicator = aiChatMessages ? aiChatMessages.querySelector('.ai-streaming-indicator') : null;
+        if (indicator) {
+            indicator.remove();
+        }
+
+        // Clear chat and update UI
+        renderAIChatMessages();
+        updateChatInputState();
+        await loadAIQueue();
+        loadTasks(); // Refresh board to show task back in inbox
+        showNotification('Task moved back to queue', 'success');
+    } catch (error) {
+        console.error('Failed to requeue task:', error);
+        showNotification('Failed to requeue task', 'error');
+    } finally {
+        // Restore button state
+        if (btn) {
+            restoreButton(btn, originalChildren);
+        }
+    }
+}
+
+/**
+ * Moves the current active task to the Done column and clears chat
+ */
+async function completeCurrentTask() {
+    if (!aiActiveTaskId) return;
+    var taskId = aiActiveTaskId;
+
+    var btn = document.getElementById('ai-complete-btn');
+    var originalChildren = btn ? Array.from(btn.childNodes).map(function(n) { return n.cloneNode(true); }) : [];
+
+    try {
+        // Show loading state
+        if (btn) {
+            setButtonLoading(btn, 'Stopping...');
+        }
+
+        // Stop Claude if it's running
+        await fetch(API_BASE + '/ai-queue/stop', { method: 'POST' });
+
+        // Move task to Done column
+        var response = await fetch(API_BASE + '/tasks/' + taskId + '/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ column: 'done', position: 0 })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to move task');
+        }
+
+        // Clear current state
+        aiActiveTaskId = null;
+        aiSession = null;
+        streamingRawText = '';
+
+        // Remove streaming indicator if present (allows renderAIChatMessages to clear)
+        var indicator = aiChatMessages ? aiChatMessages.querySelector('.ai-streaming-indicator') : null;
+        if (indicator) {
+            indicator.remove();
+        }
+
+        // Clear chat and update UI
+        renderAIChatMessages();
+        updateChatInputState();
+        await loadAIQueue(); // Reload queue from backend (task was removed by stop)
+        loadTasks(); // Refresh board to show task in Done column
+        showNotification('Task completed', 'success');
+    } catch (error) {
+        console.error('Failed to complete task:', error);
+        showNotification('Failed to complete task', 'error');
+    } finally {
+        // Restore button state
+        if (btn) {
+            restoreButton(btn, originalChildren);
+        }
+    }
+}
+
+// ============================================
+// AI Streaming Output Handlers
+// ============================================
+
+/**
+ * Formats an AskUserQuestion tool block into a readable question element
+ * @param {Object} block - The tool_use block with name "AskUserQuestion"
+ * @returns {HTMLElement} - A formatted question element
+ */
+function formatAskUserQuestion(block) {
+    var container = document.createElement('div');
+    container.className = 'ai-question-container';
+
+    var header = document.createElement('div');
+    header.className = 'ai-question-header';
+    header.textContent = 'Claude is asking:';
+    container.appendChild(header);
+
+    if (block.input && block.input.questions) {
+        block.input.questions.forEach(function(q, qIndex) {
+            var questionDiv = document.createElement('div');
+            questionDiv.className = 'ai-question';
+
+            // Question header/label
+            if (q.header) {
+                var labelSpan = document.createElement('span');
+                labelSpan.className = 'ai-question-label';
+                labelSpan.textContent = q.header;
+                questionDiv.appendChild(labelSpan);
+            }
+
+            // Question text
+            var questionText = document.createElement('div');
+            questionText.className = 'ai-question-text';
+            questionText.textContent = q.question;
+            questionDiv.appendChild(questionText);
+
+            // Options
+            if (q.options && q.options.length > 0) {
+                var optionsList = document.createElement('div');
+                optionsList.className = 'ai-question-options';
+
+                q.options.forEach(function(opt, optIndex) {
+                    var optionDiv = document.createElement('div');
+                    optionDiv.className = 'ai-question-option';
+
+                    // Make option clickable
+                    optionDiv.style.cursor = 'pointer';
+                    optionDiv.addEventListener('click', function() {
+                        sendQuestionResponse(opt.label);
+                    });
+
+                    var optionLabel = document.createElement('span');
+                    optionLabel.className = 'ai-option-label';
+                    optionLabel.textContent = (optIndex + 1) + '. ' + opt.label;
+                    optionDiv.appendChild(optionLabel);
+
+                    if (opt.description) {
+                        var optionDesc = document.createElement('span');
+                        optionDesc.className = 'ai-option-description';
+                        optionDesc.textContent = ' - ' + opt.description;
+                        optionDiv.appendChild(optionDesc);
+                    }
+
+                    optionsList.appendChild(optionDiv);
+                });
+
+                questionDiv.appendChild(optionsList);
+            }
+
+            container.appendChild(questionDiv);
+        });
+    }
+
+    var hint = document.createElement('div');
+    hint.className = 'ai-question-hint';
+    hint.textContent = 'Click an option above or type your answer below';
+    container.appendChild(hint);
+
+    return container;
+}
+
+/**
+ * Handles streaming output from Claude subprocess via WebSocket
+ * @param {Object} data - {task_id, content, type, timestamp}
+ */
+function handleAIOutput(data) {
+    if (!data || !aiChatMessages) return;
+
+    // Remove placeholder if present
+    var placeholder = aiChatMessages.querySelector('.ai-chat-placeholder');
+    if (placeholder) {
+        placeholder.remove();
+    }
+
+    // Remove "Claude is thinking..." indicator when we start receiving output
+    var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+
+    // Get or create the streaming message element
+    var streamingEl = aiChatMessages.querySelector('.ai-streaming-message');
+    if (!streamingEl) {
+        streamingEl = document.createElement('div');
+        streamingEl.className = 'ai-chat-message assistant ai-streaming-message markdown-content';
+        streamingRawText = ''; // Reset raw text accumulator
+        // Add loading spinner until text content arrives
+        var spinner = document.createElement('span');
+        spinner.className = 'chat-loading-spinner';
+        streamingEl.appendChild(spinner);
+        aiChatMessages.appendChild(streamingEl);
+    }
+
+    // Handle different content types
+    if (data.type === 'json') {
+        // Try to parse Claude CLI's stream-json format
+        try {
+            var event = JSON.parse(data.content);
+
+            // Claude CLI stream-json event types:
+            // - "system": init info (ignore)
+            // - "assistant": Claude's response with message.content[]
+            // - "user": tool results (ignore for now)
+            // - "result": completion marker
+
+            if (event.type === 'assistant' && event.message && event.message.content) {
+                // Extract text from message content blocks
+                var contentBlocks = event.message.content;
+                for (var i = 0; i < contentBlocks.length; i++) {
+                    var block = contentBlocks[i];
+                    if (block.type === 'text' && block.text) {
+                        // Remove loading spinner if present
+                        var loadingSpinner = streamingEl.querySelector('.chat-loading-spinner');
+                        if (loadingSpinner) {
+                            loadingSpinner.remove();
+                        }
+                        // Accumulate raw text and re-render with markdown
+                        streamingRawText += block.text;
+                        streamingEl.innerHTML = renderMarkdown(streamingRawText);
+                    } else if (block.type === 'tool_use') {
+                        // Check if this is an AskUserQuestion tool
+                        if (block.name === 'AskUserQuestion') {
+                            // Create formatted question element
+                            var questionEl = formatAskUserQuestion(block);
+                            aiChatMessages.appendChild(questionEl);
+                            aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+                        } else {
+                            // Create a separate tool-use message element
+                            var toolEl = document.createElement('div');
+                            toolEl.className = 'ai-chat-message tool-use';
+
+                            // Add wrench/tool icon
+                            var iconSpan = document.createElement('span');
+                            iconSpan.className = 'tool-icon';
+                            var iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                            iconSvg.setAttribute('width', '14');
+                            iconSvg.setAttribute('height', '14');
+                            iconSvg.setAttribute('viewBox', '0 0 24 24');
+                            iconSvg.setAttribute('fill', 'none');
+                            iconSvg.setAttribute('stroke', 'currentColor');
+                            iconSvg.setAttribute('stroke-width', '2');
+                            iconSvg.setAttribute('stroke-linecap', 'round');
+                            iconSvg.setAttribute('stroke-linejoin', 'round');
+                            // Wrench icon path
+                            var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            path.setAttribute('d', 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z');
+                            iconSvg.appendChild(path);
+                            iconSpan.appendChild(iconSvg);
+                            toolEl.appendChild(iconSpan);
+
+                            // Add tool name
+                            var nameSpan = document.createElement('span');
+                            nameSpan.className = 'tool-name';
+                            nameSpan.textContent = block.name || 'unknown';
+                            toolEl.appendChild(nameSpan);
+
+                            aiChatMessages.appendChild(toolEl);
+                        }
+                    }
+                }
+            } else if (event.type === 'result') {
+                // Message/turn complete, finalize the streaming element
+                // Note: This fires after each turn, not just at the end
+                // Claude may still be waiting for user input (e.g., AskUserQuestion)
+                if (streamingEl) {
+                    streamingEl.classList.remove('ai-streaming-message');
+                    streamingEl = null;
+                }
+            }
+            // Ignore "system" and "user" event types
+        } catch (e) {
+            // If JSON parsing fails, just append as text with markdown
+            streamingRawText += data.content + '\n';
+            streamingEl.innerHTML = renderMarkdown(streamingRawText);
+        }
+    } else if (data.type === 'error') {
+        // Error output from stderr
+        var errorEl = document.createElement('div');
+        errorEl.className = 'ai-chat-message error';
+        errorEl.textContent = data.content;
+        aiChatMessages.appendChild(errorEl);
+    } else {
+        // Plain text output
+        streamingEl.textContent += data.content + '\n';
+    }
+
+    // Auto-scroll to bottom
+    aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+}
+
+/**
+ * Handles AI process started event
+ * @param {Object} data - {task_id, status}
+ */
+function handleAIStarted(data) {
+    console.log('[AI] Claude started for task:', data.task_id);
+    aiActiveTaskId = data.task_id;
+
+    // Update UI state
+    updateChatInputState();
+    renderAIQueue();
+
+    // Clear previous messages and show streaming indicator
+    if (aiChatMessages) {
+        while (aiChatMessages.firstChild) {
+            aiChatMessages.removeChild(aiChatMessages.firstChild);
+        }
+        var indicator = document.createElement('div');
+        indicator.className = 'ai-streaming-indicator';
+        // Create dots using DOM methods instead of innerHTML
+        var dot1 = document.createElement('span');
+        dot1.className = 'dot';
+        var dot2 = document.createElement('span');
+        dot2.className = 'dot';
+        var dot3 = document.createElement('span');
+        dot3.className = 'dot';
+        var text = document.createTextNode(' Claude is thinking...');
+        indicator.appendChild(dot1);
+        indicator.appendChild(dot2);
+        indicator.appendChild(dot3);
+        indicator.appendChild(text);
+        aiChatMessages.appendChild(indicator);
+    }
+
+    showNotification('Claude started working on task', 'success');
+}
+
+/**
+ * Handles AI process stopped event
+ * @param {Object} data - {task_id, status, error}
+ */
+function handleAIStopped(data) {
+    console.log('[AI] Claude stopped:', data.status, data.error || '');
+
+    // Finalize any streaming message
+    if (aiChatMessages) {
+        var streamingEl = aiChatMessages.querySelector('.ai-streaming-message');
+        if (streamingEl) {
+            streamingEl.classList.remove('ai-streaming-message');
+        }
+
+        // Remove streaming indicator
+        var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
+        if (indicator) {
+            indicator.remove();
+        }
+
+        // Add completion message
+        var statusEl = document.createElement('div');
+        statusEl.className = 'ai-chat-message system';
+        if (data.status === 'completed') {
+            statusEl.textContent = '--- Claude finished ---';
+        } else if (data.status === 'error') {
+            statusEl.textContent = '--- Claude stopped with error: ' + (data.error || 'unknown') + ' ---';
+        } else {
+            statusEl.textContent = '--- Claude stopped ---';
+        }
+        aiChatMessages.appendChild(statusEl);
+        aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
+    }
+
+    // Clear active task state
+    aiActiveTaskId = null;
+    aiSession = null;
+
+    // Update UI
+    updateChatInputState();
+    renderAIQueue();
+    loadAIQueue(); // Refresh queue state from server
+
+    if (data.status === 'error') {
+        showNotification('Claude stopped with error: ' + (data.error || 'unknown'), 'error');
+    } else {
+        showNotification('Claude finished working', 'success');
+    }
+}
+
+// ============================================
+// AI Queue Drag-and-Drop Reordering
+// ============================================
+
+var queueDraggedTaskId = null;
+
+function handleQueueDragStart(e) {
+    var card = e.target.closest('.ai-queue-card');
+    if (!card) return;
+
+    queueDraggedTaskId = card.dataset.taskId;
+    card.classList.add('dragging');
+
+    // Set drag data
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', queueDraggedTaskId);
+}
+
+function handleQueueDragEnd(e) {
+    var card = e.target.closest('.ai-queue-card');
+    if (card) {
+        card.classList.remove('dragging');
+    }
+    queueDraggedTaskId = null;
+
+    // Remove all drop indicators
+    document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+        el.remove();
+    });
+}
+
+function handleQueueDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    var card = e.target.closest('.ai-queue-card');
+    if (!card || card.dataset.taskId === queueDraggedTaskId) return;
+
+    // Remove existing indicators
+    document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+        el.remove();
+    });
+
+    // Calculate if we're in top or bottom half of the card
+    var rect = card.getBoundingClientRect();
+    var midY = rect.top + rect.height / 2;
+    var indicator = document.createElement('div');
+    indicator.className = 'ai-queue-drop-indicator';
+
+    if (e.clientY < midY) {
+        // Insert before
+        card.parentNode.insertBefore(indicator, card);
+    } else {
+        // Insert after
+        card.parentNode.insertBefore(indicator, card.nextSibling);
+    }
+}
+
+function handleQueueDragLeave(e) {
+    // Only remove indicator if leaving the card entirely
+    var card = e.target.closest('.ai-queue-card');
+    if (!card) return;
+
+    var relatedTarget = e.relatedTarget;
+    if (relatedTarget && card.contains(relatedTarget)) return;
+
+    // Check if moving to another card
+    var toCard = relatedTarget && relatedTarget.closest('.ai-queue-card');
+    if (!toCard || toCard === card) {
+        document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+            el.remove();
+        });
+    }
+}
+
+function handleQueueDrop(e) {
+    e.preventDefault();
+
+    var targetCard = e.target.closest('.ai-queue-card');
+    if (!targetCard || !queueDraggedTaskId) return;
+
+    var targetTaskId = targetCard.dataset.taskId;
+    if (targetTaskId === queueDraggedTaskId) return;
+
+    // Find indices in aiQueue
+    var draggedIndex = aiQueue.indexOf(queueDraggedTaskId);
+    var targetIndex = aiQueue.indexOf(targetTaskId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Determine if dropping before or after target
+    var rect = targetCard.getBoundingClientRect();
+    var midY = rect.top + rect.height / 2;
+    var insertAfter = e.clientY >= midY;
+
+    // Remove dragged item from array
+    aiQueue.splice(draggedIndex, 1);
+
+    // Recalculate target index after removal
+    var newTargetIndex = aiQueue.indexOf(targetTaskId);
+    var insertIndex = insertAfter ? newTargetIndex + 1 : newTargetIndex;
+
+    // Insert at new position
+    aiQueue.splice(insertIndex, 0, queueDraggedTaskId);
+
+    // Clean up
+    document.querySelectorAll('.ai-queue-drop-indicator').forEach(function(el) {
+        el.remove();
+    });
+
+    // Re-render the queue
+    renderAIQueue();
+    updateQueuePositionBadges();
+
+    console.log('[AI Queue] Reordered:', aiQueue);
+}
+
+// ============================================
+// AI Queue Rendering
+// ============================================
+
+function renderAIQueue() {
+    if (!aiQueueList) return;
+    while (aiQueueList.firstChild) {
+        aiQueueList.removeChild(aiQueueList.firstChild);
+    }
+
+    // Count non-active tasks (tasks that will be rendered in the queue)
+    var pendingTasks = aiQueue.filter(function(taskId) {
+        return taskId !== aiActiveTaskId;
+    });
+
+    if (pendingTasks.length === 0) {
+        var empty = document.createElement('div');
+        empty.className = 'ai-queue-empty';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '32');
+        svg.setAttribute('height', '32');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.5');
+        var path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path1.setAttribute('d', 'M12 8V4H8');
+        svg.appendChild(path1);
+        var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('width', '16');
+        rect.setAttribute('height', '12');
+        rect.setAttribute('x', '4');
+        rect.setAttribute('y', '8');
+        rect.setAttribute('rx', '2');
+        svg.appendChild(rect);
+        empty.appendChild(svg);
+        var p = document.createElement('p');
+        // Show different message if active task exists
+        if (aiActiveTaskId) {
+            p.textContent = 'No pending tasks in queue';
+        } else {
+            p.textContent = 'Click + on tasks to add them to the queue';
+        }
+        empty.appendChild(p);
+        aiQueueList.appendChild(empty);
+        updateActiveChatHeader();
+        updateChatInputState();
+        updateQueueCountBadge();
+        return;
+    }
+
+    // Filter out active task and render remaining queue items
+    var queueIndex = 0;
+    aiQueue.forEach(function(taskId) {
+        var task = tasks.find(function(t) { return t.id === taskId; });
+        if (!task) return;
+
+        // Skip active task - it will be shown in the chat header
+        if (taskId === aiActiveTaskId) return;
+
+        var card = createAIQueueCard(task, queueIndex, false);
+        aiQueueList.appendChild(card);
+        queueIndex++;
+    });
+
+    // Update the chat header with active task info
+    updateActiveChatHeader();
+    updateChatInputState();
+    updateQueueCountBadge();
+}
+
+/**
+ * Updates the chat panel header to show the active task or default state
+ */
+function updateActiveChatHeader() {
+    var headerTitle = document.getElementById('ai-chat-task-title');
+    if (!headerTitle) return;
+
+    // Remove any existing click handler
+    headerTitle.onclick = null;
+    headerTitle.style.cursor = '';
+    headerTitle.title = '';
+
+    if (!aiActiveTaskId) {
+        headerTitle.textContent = 'No Active Task';
+        headerTitle.classList.remove('has-active-task');
+        headerTitle.classList.remove('clickable');
+        return;
+    }
+
+    // Find the active task
+    var activeTask = tasks.find(function(t) { return t.id === aiActiveTaskId; });
+    if (!activeTask) {
+        headerTitle.textContent = 'No Active Task';
+        headerTitle.classList.remove('has-active-task');
+        headerTitle.classList.remove('clickable');
+        return;
+    }
+
+    // Display active task in header
+    headerTitle.textContent = activeTask.title;
+    headerTitle.classList.add('has-active-task');
+    headerTitle.classList.add('clickable');
+    headerTitle.style.cursor = 'pointer';
+    headerTitle.title = 'Click to view task details';
+
+    // Add click handler to open task panel
+    headerTitle.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openTaskPanel(activeTask);
+    };
+}
+
+function createAIQueueCard(task, index, isActive) {
+    var card = document.createElement('div');
+    card.className = 'ai-queue-card' + (isActive ? ' active' : '');
+    card.dataset.taskId = task.id;
+
+    // Make card draggable (only if not active)
+    if (!isActive) {
+        card.draggable = true;
+        card.addEventListener('dragstart', handleQueueDragStart);
+        card.addEventListener('dragend', handleQueueDragEnd);
+        card.addEventListener('dragover', handleQueueDragOver);
+        card.addEventListener('drop', handleQueueDrop);
+        card.addEventListener('dragleave', handleQueueDragLeave);
+    }
+
+    var header = document.createElement('div');
+    header.className = 'ai-queue-card-header';
+
+    // Add drag handle (grip icon) - only for non-active tasks
+    if (!isActive) {
+        var dragHandle = document.createElement('span');
+        dragHandle.className = 'ai-queue-drag-handle';
+        var gripSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        gripSvg.setAttribute('width', '8');
+        gripSvg.setAttribute('height', '24');
+        gripSvg.setAttribute('viewBox', '0 0 16 48');
+        gripSvg.setAttribute('fill', 'currentColor');
+        // Create 8-dot grip pattern (4 rows)
+        var positions = [[5, 8], [11, 8], [5, 18], [11, 18], [5, 30], [11, 30], [5, 40], [11, 40]];
+        positions.forEach(function(pos) {
+            var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', pos[0]);
+            circle.setAttribute('cy', pos[1]);
+            circle.setAttribute('r', '1.5');
+            gripSvg.appendChild(circle);
+        });
+        dragHandle.appendChild(gripSvg);
+        header.appendChild(dragHandle);
+    }
+
+    var position = document.createElement('span');
+    position.className = 'ai-queue-position';
+    if (isActive) {
+        var spinner = document.createElement('span');
+        spinner.className = 'spinner';
+        position.appendChild(spinner);
+    } else {
+        position.textContent = (index + 1).toString();
+    }
+    header.appendChild(position);
+
+    var title = document.createElement('span');
+    title.className = 'ai-queue-card-title';
+    title.textContent = task.title;
+    header.appendChild(title);
+
+    if (!isActive) {
+        var removeBtn = document.createElement('button');
+        removeBtn.className = 'ai-queue-remove-btn';
+        removeBtn.title = 'Remove from queue';
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '12');
+        svg.setAttribute('height', '12');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        var line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line1.setAttribute('x1', '18');
+        line1.setAttribute('y1', '6');
+        line1.setAttribute('x2', '6');
+        line1.setAttribute('y2', '18');
+        svg.appendChild(line1);
+        var line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line2.setAttribute('x1', '6');
+        line2.setAttribute('y1', '6');
+        line2.setAttribute('x2', '18');
+        line2.setAttribute('y2', '18');
+        svg.appendChild(line2);
+        removeBtn.appendChild(svg);
+        removeBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            removeFromAIQueue(task.id);
+        });
+        header.appendChild(removeBtn);
+    }
+
+    card.appendChild(header);
+
+    if (isActive) {
+        var status = document.createElement('div');
+        status.className = 'ai-queue-card-status';
+        var badge = document.createElement('span');
+        badge.className = 'ai-working-badge';
+        var badgeSpinner = document.createElement('span');
+        badgeSpinner.className = 'spinner';
+        badge.appendChild(badgeSpinner);
+        badge.appendChild(document.createTextNode('Working...'));
+        status.appendChild(badge);
+        card.appendChild(status);
+    }
+
+    return card;
+}
+
+function updateQueuePositionBadges() {
+    document.querySelectorAll('.queue-position-badge').forEach(function(b) { b.remove(); });
+
+    aiQueue.forEach(function(taskId, index) {
+        var card = document.querySelector('.task-card[data-id="' + taskId + '"]');
+        if (!card) return;
+        var isActive = taskId === aiActiveTaskId;
+        var badge = document.createElement('span');
+        badge.className = 'queue-position-badge' + (isActive ? ' working' : '');
+        badge.dataset.taskId = taskId;
+
+        if (isActive) {
+            var spinner = document.createElement('span');
+            spinner.className = 'spinner';
+            badge.appendChild(spinner);
+        } else {
+            // Position number (shown by default)
+            var posNum = document.createElement('span');
+            posNum.className = 'position-number';
+            posNum.textContent = (index + 1).toString();
+            badge.appendChild(posNum);
+
+            // Remove icon (shown on hover)
+            var removeIcon = document.createElement('span');
+            removeIcon.className = 'remove-icon';
+            var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', '14');
+            svg.setAttribute('height', '14');
+            svg.setAttribute('viewBox', '0 0 24 24');
+            svg.setAttribute('fill', 'none');
+            svg.setAttribute('stroke', 'currentColor');
+            svg.setAttribute('stroke-width', '3');
+            svg.setAttribute('stroke-linecap', 'round');
+            var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', '5');
+            line.setAttribute('y1', '12');
+            line.setAttribute('x2', '19');
+            line.setAttribute('y2', '12');
+            svg.appendChild(line);
+            removeIcon.appendChild(svg);
+            badge.appendChild(removeIcon);
+
+            // Click to remove from queue
+            badge.addEventListener('click', function(e) {
+                e.stopPropagation();
+                removeFromAIQueue(taskId);
+            });
+        }
+
+        card.appendChild(badge);
+    });
+}
+
+/**
+ * Updates the queue count badge on the toggle button
+ */
+function updateQueueCountBadge() {
+    var badge = document.getElementById('ai-queue-count-badge');
+    if (!badge) return;
+
+    var count = aiQueue.length;
+    if (count > 0) {
+        badge.textContent = count.toString();
+        badge.style.display = 'flex';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+// Initialize AI Queue after DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(initAIQueue, 100);
+});

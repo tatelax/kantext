@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"kantext/internal/models"
 	"kantext/internal/services"
@@ -12,15 +15,17 @@ import (
 
 // APIHandler handles REST API requests
 type APIHandler struct {
-	store  *services.TaskStore
-	runner *services.TestRunner
+	store        *services.TaskStore
+	runner       *services.TestRunner
+	claudeRunner *services.ClaudeRunner
 }
 
 // NewAPIHandler creates a new APIHandler
-func NewAPIHandler(store *services.TaskStore, runner *services.TestRunner) *APIHandler {
+func NewAPIHandler(store *services.TaskStore, runner *services.TestRunner, claudeRunner *services.ClaudeRunner) *APIHandler {
 	return &APIHandler{
-		store:  store,
-		runner: runner,
+		store:        store,
+		runner:       runner,
+		claudeRunner: claudeRunner,
 	}
 }
 
@@ -370,4 +375,212 @@ func (h *APIHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Return updated config
 	h.GetConfig(w, r)
+}
+
+// ===== AI Queue Handlers =====
+
+// GetAIQueue returns the current AI queue state
+func (h *APIHandler) GetAIQueue(w http.ResponseWriter, r *http.Request) {
+	state := h.store.GetAIQueue()
+	respondJSON(w, http.StatusOK, state)
+}
+
+// AddToAIQueue adds a task to the AI queue
+func (h *APIHandler) AddToAIQueue(w http.ResponseWriter, r *http.Request) {
+	var req models.AddToQueueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.TaskID == "" {
+		respondError(w, http.StatusBadRequest, "task_id is required")
+		return
+	}
+
+	if err := h.store.AddToQueue(req.TaskID, req.Position); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	state := h.store.GetAIQueue()
+	respondJSON(w, http.StatusOK, state)
+}
+
+// RemoveFromAIQueue removes a task from the AI queue
+func (h *APIHandler) RemoveFromAIQueue(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskId")
+
+	if err := h.store.RemoveFromQueue(taskID); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	state := h.store.GetAIQueue()
+	respondJSON(w, http.StatusOK, state)
+}
+
+// ReorderAIQueue sets the new order of tasks in the queue
+func (h *APIHandler) ReorderAIQueue(w http.ResponseWriter, r *http.Request) {
+	var req models.ReorderQueueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if len(req.TaskIDs) == 0 {
+		respondError(w, http.StatusBadRequest, "task_ids is required")
+		return
+	}
+
+	if err := h.store.ReorderQueue(req.TaskIDs); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	state := h.store.GetAIQueue()
+	respondJSON(w, http.StatusOK, state)
+}
+
+// StartAITask starts working on the next task in the queue
+func (h *APIHandler) StartAITask(w http.ResponseWriter, r *http.Request) {
+	taskID, err := h.store.StartNextTask()
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Get task details for prompt
+	task, err := h.store.Get(taskID)
+	if err != nil {
+		h.store.StopCurrentTask()
+		respondError(w, http.StatusInternalServerError, "Failed to get task: "+err.Error())
+		return
+	}
+
+	// Build prompt for Claude
+	prompt := buildClaudePrompt(task)
+
+	// Start Claude subprocess
+	ctx := context.Background()
+	if err := h.claudeRunner.Start(ctx, taskID, prompt); err != nil {
+		h.store.StopCurrentTask()
+		respondError(w, http.StatusInternalServerError, "Failed to start Claude: "+err.Error())
+		return
+	}
+
+	response := map[string]interface{}{
+		"task_id": taskID,
+		"queue":   h.store.GetAIQueue(),
+		"status":  "started",
+	}
+	respondJSON(w, http.StatusOK, response)
+}
+
+// buildClaudePrompt creates the initial prompt for Claude based on task details
+func buildClaudePrompt(task *models.Task) string {
+	var sb strings.Builder
+
+	sb.WriteString("You are working on a task from the Kantext task board.\n\n")
+	sb.WriteString("## Task Details\n")
+	sb.WriteString(fmt.Sprintf("**Title:** %s\n", task.Title))
+	sb.WriteString(fmt.Sprintf("**ID:** %s\n", task.ID))
+	sb.WriteString(fmt.Sprintf("**Priority:** %s\n", task.Priority))
+
+	if task.AcceptanceCriteria != "" {
+		sb.WriteString(fmt.Sprintf("\n**Acceptance Criteria:**\n%s\n", task.AcceptanceCriteria))
+	}
+
+	if len(task.Tags) > 0 {
+		sb.WriteString(fmt.Sprintf("\n**Tags:** %s\n", strings.Join(task.Tags, ", ")))
+	}
+
+	if len(task.Tests) > 0 {
+		sb.WriteString("\n**Associated Tests:**\n")
+		for _, test := range task.Tests {
+			sb.WriteString(fmt.Sprintf("- %s:%s\n", test.File, test.Func))
+		}
+	}
+
+	sb.WriteString("\n## Instructions\n")
+	sb.WriteString("1. Implement the task according to the acceptance criteria\n")
+	sb.WriteString("2. Use the Kantext MCP tools to update task status when complete\n")
+	sb.WriteString("3. Move the task to 'in_review' column when finished\n")
+
+	return sb.String()
+}
+
+// StopAITask stops working on the current task
+func (h *APIHandler) StopAITask(w http.ResponseWriter, r *http.Request) {
+	// Stop Claude subprocess first
+	if err := h.claudeRunner.Stop(); err != nil {
+		// Log but don't fail - the process might have already exited
+		fmt.Printf("Warning: error stopping Claude: %v\n", err)
+	}
+
+	if err := h.store.StopCurrentTask(); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	state := h.store.GetAIQueue()
+	respondJSON(w, http.StatusOK, state)
+}
+
+// GetAISession returns the current AI conversation session
+func (h *APIHandler) GetAISession(w http.ResponseWriter, r *http.Request) {
+	session := h.store.GetAISession()
+	if session == nil {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"task_id":  "",
+			"messages": []models.ChatMessage{},
+		})
+		return
+	}
+	respondJSON(w, http.StatusOK, session)
+}
+
+// SendAIMessage sends a message to the AI subprocess
+func (h *APIHandler) SendAIMessage(w http.ResponseWriter, r *http.Request) {
+	var req models.SendMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Message == "" {
+		respondError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	// Check if Claude is running
+	if !h.claudeRunner.IsRunning() {
+		respondError(w, http.StatusBadRequest, "No active Claude session")
+		return
+	}
+
+	// Add user message to session for history
+	userMsg, err := h.store.AddChatMessage("user", req.Message)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Prepare message with mode context if in plan mode
+	messageToSend := req.Message
+	if req.Mode == "plan" {
+		messageToSend = "[PLAN MODE - READ ONLY: You are in planning mode. Do NOT edit, write, create, or delete any files. Only analyze code, explore the codebase, and provide detailed implementation plans. If the user asks you to make changes, remind them to switch to 'Accept Edits' mode first.]\n\n" + req.Message
+	}
+
+	// Send to Claude's stdin
+	if err := h.claudeRunner.SendInput(messageToSend); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to send message: "+err.Error())
+		return
+	}
+
+	response := map[string]interface{}{
+		"user_message": userMsg,
+		"status":       "sent",
+	}
+	respondJSON(w, http.StatusOK, response)
 }
