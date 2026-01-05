@@ -4408,6 +4408,45 @@ let aiQueue = [];           // Array of task IDs in queue
 let aiActiveTaskId = null;  // Currently active task ID
 let aiSession = null;       // Current AI session state
 let aiSidebarOpen = false;
+let streamingRawText = '';  // Accumulates raw text for markdown re-rendering
+
+// Configure marked for safe markdown rendering
+if (typeof marked !== 'undefined') {
+    marked.setOptions({
+        breaks: true,      // Convert \n to <br>
+        gfm: true,         // GitHub Flavored Markdown
+        headerIds: false,  // Don't add IDs to headers
+        mangle: false      // Don't mangle email addresses
+    });
+}
+
+/**
+ * Renders markdown content safely
+ * @param {string} text - Raw markdown text
+ * @returns {string} - HTML string
+ */
+function renderMarkdown(text) {
+    if (typeof marked === 'undefined' || !text) {
+        return escapeHtml(text || '');
+    }
+    try {
+        return marked.parse(text);
+    } catch (e) {
+        console.error('Markdown parse error:', e);
+        return escapeHtml(text);
+    }
+}
+
+/**
+ * Escapes HTML entities for safe display
+ * @param {string} text - Raw text
+ * @returns {string} - Escaped HTML
+ */
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
 const aiQueueToggleBtn = document.getElementById('ai-queue-toggle-btn');
 const aiQueueSidebar = document.getElementById('ai-queue-sidebar');
@@ -4803,7 +4842,12 @@ function renderAIChatMessages() {
     aiSession.messages.forEach(function(msg) {
         var msgDiv = document.createElement('div');
         msgDiv.className = 'ai-chat-message ' + msg.role;
-        msgDiv.textContent = msg.content;
+        if (msg.role === 'assistant') {
+            msgDiv.classList.add('markdown-content');
+            msgDiv.innerHTML = renderMarkdown(msg.content);
+        } else {
+            msgDiv.textContent = msg.content;
+        }
         aiChatMessages.appendChild(msgDiv);
     });
     aiChatMessages.scrollTop = aiChatMessages.scrollHeight;
@@ -4925,6 +4969,7 @@ async function requeueCurrentTask() {
         // Clear current state after successful requeue
         aiActiveTaskId = null;
         aiSession = null;
+        streamingRawText = '';
 
         // Remove streaming indicator if present (allows renderAIChatMessages to clear)
         var indicator = aiChatMessages ? aiChatMessages.querySelector('.ai-streaming-indicator') : null;
@@ -4982,6 +5027,7 @@ async function completeCurrentTask() {
         // Clear current state
         aiActiveTaskId = null;
         aiSession = null;
+        streamingRawText = '';
 
         // Remove streaming indicator if present (allows renderAIChatMessages to clear)
         var indicator = aiChatMessages ? aiChatMessages.querySelector('.ai-streaming-indicator') : null;
@@ -5111,7 +5157,8 @@ function handleAIOutput(data) {
     var streamingEl = aiChatMessages.querySelector('.ai-streaming-message');
     if (!streamingEl) {
         streamingEl = document.createElement('div');
-        streamingEl.className = 'ai-chat-message assistant ai-streaming-message';
+        streamingEl.className = 'ai-chat-message assistant ai-streaming-message markdown-content';
+        streamingRawText = ''; // Reset raw text accumulator
         // Add loading spinner until text content arrives
         var spinner = document.createElement('span');
         spinner.className = 'chat-loading-spinner';
@@ -5142,7 +5189,9 @@ function handleAIOutput(data) {
                         if (loadingSpinner) {
                             loadingSpinner.remove();
                         }
-                        streamingEl.textContent += block.text;
+                        // Accumulate raw text and re-render with markdown
+                        streamingRawText += block.text;
+                        streamingEl.innerHTML = renderMarkdown(streamingRawText);
                     } else if (block.type === 'tool_use') {
                         // Check if this is an AskUserQuestion tool
                         if (block.name === 'AskUserQuestion') {
@@ -5195,8 +5244,9 @@ function handleAIOutput(data) {
             }
             // Ignore "system" and "user" event types
         } catch (e) {
-            // If JSON parsing fails, just append as text
-            streamingEl.textContent += data.content + '\n';
+            // If JSON parsing fails, just append as text with markdown
+            streamingRawText += data.content + '\n';
+            streamingEl.innerHTML = renderMarkdown(streamingRawText);
         }
     } else if (data.type === 'error') {
         // Error output from stderr
@@ -5495,9 +5545,15 @@ function updateActiveChatHeader() {
     var headerTitle = document.getElementById('ai-chat-task-title');
     if (!headerTitle) return;
 
+    // Remove any existing click handler
+    headerTitle.onclick = null;
+    headerTitle.style.cursor = '';
+    headerTitle.title = '';
+
     if (!aiActiveTaskId) {
         headerTitle.textContent = 'No Active Task';
         headerTitle.classList.remove('has-active-task');
+        headerTitle.classList.remove('clickable');
         return;
     }
 
@@ -5506,12 +5562,23 @@ function updateActiveChatHeader() {
     if (!activeTask) {
         headerTitle.textContent = 'No Active Task';
         headerTitle.classList.remove('has-active-task');
+        headerTitle.classList.remove('clickable');
         return;
     }
 
     // Display active task in header
     headerTitle.textContent = activeTask.title;
     headerTitle.classList.add('has-active-task');
+    headerTitle.classList.add('clickable');
+    headerTitle.style.cursor = 'pointer';
+    headerTitle.title = 'Click to view task details';
+
+    // Add click handler to open task panel
+    headerTitle.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openTaskPanel(activeTask);
+    };
 }
 
 function createAIQueueCard(task, index, isActive) {
