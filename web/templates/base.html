@@ -32,7 +32,7 @@
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=47">
+    <link rel="stylesheet" href="/static/css/styles.css?v=48">
     <script>
         // Initialize theme before page renders to avoid flash
         (function() {
@@ -168,7 +168,22 @@
                 <!-- Right: Chat Interface -->
                 <div class="ai-chat-panel">
                     <header class="ai-chat-header">
-                        <h3 id="ai-chat-task-title">No Active Task</h3>
+                        <div class="ai-chat-header-title-row">
+                            <h3 id="ai-chat-task-title">No Active Task</h3>
+                            <button id="ai-mode-toggle-btn" class="ai-mode-toggle mode-accept" style="display: none;" title="Accept Edits ON - Click to enable Plan Mode (Shift+Tab)">
+                                <!-- Plan mode icon (pause symbol) -->
+                                <svg id="ai-mode-icon-plan" class="ai-mode-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                                    <rect x="6" y="4" width="4" height="16"></rect>
+                                    <rect x="14" y="4" width="4" height="16"></rect>
+                                </svg>
+                                <!-- Accept edits icon (double play symbol) -->
+                                <svg id="ai-mode-icon-accept" class="ai-mode-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display: block;">
+                                    <polygon points="5 3 14 12 5 21 5 3"></polygon>
+                                    <polygon points="13 3 22 12 13 21 13 3"></polygon>
+                                </svg>
+                                <span id="ai-mode-label" class="ai-mode-label">accept edits</span>
+                            </button>
+                        </div>
                         <div id="ai-chat-header-actions" class="ai-chat-header-actions" style="display: none;">
                             <button id="ai-requeue-btn" class="btn-sm btn-secondary">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -557,7 +572,7 @@
         </div>
     </dialog>
 
-    <script src="/static/js/app.js?v=47"></script>
+    <script src="/static/js/app.js?v=48"></script>
 </body>
 </html>
 {{end}}

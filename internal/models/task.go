@@ -194,4 +194,5 @@ type ReorderQueueRequest struct {
 // SendMessageRequest is the request body for sending a chat message
 type SendMessageRequest struct {
 	Message string `json:"message"`
+	Mode    string `json:"mode,omitempty"` // "plan" or empty (default: accept edits)
 }

@@ -3851,6 +3851,21 @@ function initTaskPanel() {
         }
     });
 
+    // Shift+Tab to toggle AI task mode (plan/accept edits)
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab' && e.shiftKey && aiSidebarOpen && aiActiveTaskId) {
+            // Don't trigger if typing in an input, textarea, or contenteditable
+            const target = e.target;
+            const isEditing = target.tagName === 'INPUT' ||
+                              target.tagName === 'TEXTAREA' ||
+                              target.isContentEditable;
+            if (isEditing) return;
+
+            e.preventDefault();
+            toggleActiveTaskMode();
+        }
+    });
+
     // Click outside panel to close it
     document.addEventListener('click', async (e) => {
         if (!taskPanel?.classList.contains('open')) return;
@@ -4410,6 +4425,12 @@ let aiSession = null;       // Current AI session state
 let aiSidebarOpen = false;
 let streamingRawText = '';  // Accumulates raw text for markdown re-rendering
 
+// Task mode state (per-task: 'plan' or 'accept')
+let aiTaskModes = {};       // Map of taskId -> mode
+const AI_TASK_MODES_STORAGE_KEY = 'kantext-ai-task-modes';
+const MODE_PLAN = 'plan';
+const MODE_ACCEPT = 'accept';
+
 // Configure marked for safe markdown rendering
 if (typeof marked !== 'undefined') {
     marked.setOptions({
@@ -4458,6 +4479,10 @@ const aiChatMessages = document.getElementById('ai-chat-messages');
 const aiChatInput = document.getElementById('ai-chat-input');
 const aiSendBtn = document.getElementById('ai-send-btn');
 const aiChatTaskTitle = document.getElementById('ai-chat-task-title');
+const aiModeToggleBtn = document.getElementById('ai-mode-toggle-btn');
+const aiModeIconPlan = document.getElementById('ai-mode-icon-plan');
+const aiModeIconAccept = document.getElementById('ai-mode-icon-accept');
+const aiModeLabel = document.getElementById('ai-mode-label');
 
 // ============================================
 // AI Queue Initialization
@@ -4502,6 +4527,14 @@ function initAIQueue() {
         completeBtn.addEventListener('click', completeCurrentTask);
     }
 
+    // Mode toggle button
+    if (aiModeToggleBtn) {
+        aiModeToggleBtn.addEventListener('click', toggleActiveTaskMode);
+    }
+
+    // Load persisted task modes
+    loadTaskModes();
+
     initAIQueueResize();
     loadAIQueue();
 }
@@ -4535,6 +4568,98 @@ function closeAIQueueSidebar() {
     if (aiQueueOverlay) aiQueueOverlay.classList.remove('visible');
     document.body.classList.remove('ai-queue-open');
     aiSidebarOpen = false;
+}
+
+// ============================================
+// AI Task Mode Management
+// ============================================
+
+/**
+ * Load task modes from localStorage
+ */
+function loadTaskModes() {
+    try {
+        var saved = localStorage.getItem(AI_TASK_MODES_STORAGE_KEY);
+        if (saved) {
+            aiTaskModes = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.warn('Failed to load task modes from localStorage:', e);
+        aiTaskModes = {};
+    }
+}
+
+/**
+ * Save task modes to localStorage
+ */
+function saveTaskModes() {
+    try {
+        localStorage.setItem(AI_TASK_MODES_STORAGE_KEY, JSON.stringify(aiTaskModes));
+    } catch (e) {
+        console.warn('Failed to save task modes to localStorage:', e);
+    }
+}
+
+/**
+ * Get mode for a task (defaults to 'accept')
+ * @param {string} taskId
+ * @returns {string} 'plan' or 'accept'
+ */
+function getTaskMode(taskId) {
+    return aiTaskModes[taskId] || MODE_ACCEPT;
+}
+
+/**
+ * Set mode for a task
+ * @param {string} taskId
+ * @param {string} mode - 'plan' or 'accept'
+ */
+function setTaskMode(taskId, mode) {
+    aiTaskModes[taskId] = mode;
+    saveTaskModes();
+    updateModeToggleUI();
+}
+
+/**
+ * Toggle mode for the active task
+ */
+function toggleActiveTaskMode() {
+    if (!aiActiveTaskId) return;
+    var currentMode = getTaskMode(aiActiveTaskId);
+    var newMode = currentMode === MODE_PLAN ? MODE_ACCEPT : MODE_PLAN;
+    setTaskMode(aiActiveTaskId, newMode);
+    showNotification(newMode === MODE_PLAN ? 'Plan Mode enabled' : 'Accept Edits enabled', 'info');
+}
+
+/**
+ * Updates the mode toggle button UI based on the active task's mode
+ */
+function updateModeToggleUI() {
+    if (!aiModeToggleBtn) return;
+
+    if (!aiActiveTaskId) {
+        aiModeToggleBtn.style.display = 'none';
+        return;
+    }
+
+    aiModeToggleBtn.style.display = 'inline-flex';
+    var mode = getTaskMode(aiActiveTaskId);
+
+    if (mode === MODE_PLAN) {
+        aiModeToggleBtn.classList.remove('mode-accept');
+        aiModeToggleBtn.classList.add('mode-plan');
+        if (aiModeIconPlan) aiModeIconPlan.style.display = 'block';
+        if (aiModeIconAccept) aiModeIconAccept.style.display = 'none';
+        if (aiModeLabel) aiModeLabel.textContent = 'plan mode';
+        aiModeToggleBtn.title = 'Plan Mode ON - Click to enable Accept Edits (Shift+Tab)';
+    } else {
+        aiModeToggleBtn.classList.remove('mode-plan');
+        aiModeToggleBtn.classList.add('mode-accept');
+        if (aiModeIconPlan) aiModeIconPlan.style.display = 'none';
+        if (aiModeIconAccept) aiModeIconAccept.style.display = 'block';
+        if (aiModeLabel) aiModeLabel.textContent = 'accept edits';
+        aiModeToggleBtn.title = 'Accept Edits ON - Click to enable Plan Mode (Shift+Tab)';
+    }
 }
 
 // ============================================
@@ -4742,11 +4867,18 @@ async function handleSendAIMessage() {
 
     appendChatMessage({ role: 'user', content: message, timestamp: new Date().toISOString() });
 
+    // Get the current task mode and prepare request body
+    const mode = getTaskMode(aiActiveTaskId);
+    const requestBody = { message: message };
+    if (mode === MODE_PLAN) {
+        requestBody.mode = 'plan';
+    }
+
     try {
         const response = await fetch(API_BASE + '/ai-session/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message })
+            body: JSON.stringify(requestBody)
         });
         if (response.ok) {
             const data = await response.json();
@@ -4776,11 +4908,18 @@ async function sendQuestionResponse(response) {
     // Show the user's selection in chat
     appendChatMessage({ role: 'user', content: response, timestamp: new Date().toISOString() });
 
+    // Get the current task mode and prepare request body
+    const mode = getTaskMode(aiActiveTaskId);
+    const requestBody = { message: response };
+    if (mode === MODE_PLAN) {
+        requestBody.mode = 'plan';
+    }
+
     try {
         const result = await fetch(API_BASE + '/ai-session/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: response })
+            body: JSON.stringify(requestBody)
         });
         if (!result.ok) {
             showNotification('Failed to send response', 'error');
@@ -4879,6 +5018,9 @@ function updateChatInputState() {
     if (headerActions) {
         headerActions.style.display = hasActiveTask ? 'flex' : 'none';
     }
+
+    // Update mode toggle button
+    updateModeToggleUI();
 }
 
 /**

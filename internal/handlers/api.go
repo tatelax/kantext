@@ -566,8 +566,14 @@ func (h *APIHandler) SendAIMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prepare message with mode context if in plan mode
+	messageToSend := req.Message
+	if req.Mode == "plan" {
+		messageToSend = "[PLAN MODE - READ ONLY: You are in planning mode. Do NOT edit, write, create, or delete any files. Only analyze code, explore the codebase, and provide detailed implementation plans. If the user asks you to make changes, remind them to switch to 'Accept Edits' mode first.]\n\n" + req.Message
+	}
+
 	// Send to Claude's stdin
-	if err := h.claudeRunner.SendInput(req.Message); err != nil {
+	if err := h.claudeRunner.SendInput(messageToSend); err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to send message: "+err.Error())
 		return
 	}
