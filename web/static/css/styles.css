@@ -3651,6 +3651,23 @@ body.search-active .task-count {
     cursor: not-allowed;
 }
 
+.ai-chat-input-area textarea::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ai-chat-input-area textarea::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ai-chat-input-area textarea::-webkit-scrollbar-thumb {
+    background-color: var(--muted);
+    border-radius: 3px;
+}
+
+.ai-chat-input-area textarea::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+}
+
 .ai-chat-input-area button {
     display: flex;
     align-items: center;

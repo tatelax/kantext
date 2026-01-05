@@ -4415,7 +4415,6 @@ const aiQueueOverlay = document.getElementById('ai-queue-overlay');
 const aiQueueList = document.getElementById('ai-queue-list');
 const aiQueueCloseBtn = document.getElementById('ai-queue-close-btn');
 const aiStartBtn = document.getElementById('ai-start-btn');
-const aiStopBtn = document.getElementById('ai-stop-btn');
 const aiChatMessages = document.getElementById('ai-chat-messages');
 const aiChatInput = document.getElementById('ai-chat-input');
 const aiSendBtn = document.getElementById('ai-send-btn');
@@ -4437,9 +4436,6 @@ function initAIQueue() {
     }
     if (aiStartBtn) {
         aiStartBtn.addEventListener('click', handleStartAITask);
-    }
-    if (aiStopBtn) {
-        aiStopBtn.addEventListener('click', handleStopAITask);
     }
     if (aiSendBtn) {
         aiSendBtn.addEventListener('click', handleSendAIMessage);
@@ -4773,7 +4769,7 @@ function renderAIChatMessages() {
     if (!aiChatMessages) return;
 
     // Don't clear chat if we're actively streaming (indicator present)
-    // This prevents HTTP polling from destroying WebSocket-managed streaming state
+    // This prevents other code paths from destroying active streaming state
     var indicator = aiChatMessages.querySelector('.ai-streaming-indicator');
     if (indicator) {
         return;
@@ -4824,9 +4820,6 @@ function updateChatInputState() {
     }
     if (aiStartBtn) {
         aiStartBtn.disabled = aiQueue.length === 0 || hasActiveTask;
-    }
-    if (aiStopBtn) {
-        aiStopBtn.style.display = hasActiveTask ? 'flex' : 'none';
     }
     if (aiChatTaskTitle) {
         if (hasActiveTask) {
@@ -4933,6 +4926,12 @@ async function requeueCurrentTask() {
         aiActiveTaskId = null;
         aiSession = null;
 
+        // Remove streaming indicator if present (allows renderAIChatMessages to clear)
+        var indicator = aiChatMessages ? aiChatMessages.querySelector('.ai-streaming-indicator') : null;
+        if (indicator) {
+            indicator.remove();
+        }
+
         // Clear chat and update UI
         renderAIChatMessages();
         updateChatInputState();
@@ -4984,10 +4983,16 @@ async function completeCurrentTask() {
         aiActiveTaskId = null;
         aiSession = null;
 
+        // Remove streaming indicator if present (allows renderAIChatMessages to clear)
+        var indicator = aiChatMessages ? aiChatMessages.querySelector('.ai-streaming-indicator') : null;
+        if (indicator) {
+            indicator.remove();
+        }
+
         // Clear chat and update UI
         renderAIChatMessages();
         updateChatInputState();
-        renderAIQueue();
+        await loadAIQueue(); // Reload queue from backend (task was removed by stop)
         loadTasks(); // Refresh board to show task in Done column
         showNotification('Task completed', 'success');
     } catch (error) {
